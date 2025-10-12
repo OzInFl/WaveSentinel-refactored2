@@ -172,8 +172,4 @@ PRs welcome! Please include:
 - Board/pin config and environment
 - Before/after behavior (logs/screens)
 
----
 
-## 📄 License
-
-Choose and state a license (e.g., **MIT**, **Apache-2.0**).
