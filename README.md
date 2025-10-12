@@ -178,3 +178,5 @@ LVGL / SquareLine Studio
 TI CC1101 community
 
 Contributors & testers
+
+h_Rat
