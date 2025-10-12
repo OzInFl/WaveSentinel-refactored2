@@ -1,41 +1,38 @@
 Wave Sentinel (Refactored)
 
-ESP32-S3 + CC1101 handheld for Sub-GHz exploration, Flipper-style .sub playback, scanning, and field-friendly RF workflows.
+ESP32-S3 + CC1101 handheld for Sub-GHz exploration, Flipper-style .sub playback, band scanning, and field-friendly RF workflows.
 
-✨ Highlights
+⚠️ Operate only within the laws and spectrum rules for your jurisdiction. Transmit only where permitted.
+
+✨ Features
 
 Sub-GHz tools (CC1101): quick band presets (315/390/433/868/915 MHz), RSSI meter, RX scanning, OOK/2-FSK profiles, GDO event handling.
 
-.sub playback: load Flipper-style .sub files from SD and transmit (where legal).
+.sub playback: load Flipper-style .sub files from microSD and transmit (where legal).
 
-Wi-Fi/BLE utilities: basic scanners and device info (model dependent).
+Wi-Fi utilities: basic 2.4 GHz scan and device info (model-dependent).
 
-Touch UI (LVGL): glove-friendly screens, status bar, dialogs.
+Touch UI (LVGL): glove-friendly screens, status bar, dialogs, toasts.
 
-Logging & profiles: SD logs; save/recall radio profiles and UI prefs.
+Logging & profiles: microSD logs; save/recall radio profiles and UI prefs.
 
 Settings persistence: NVS/JSON.
 
-⚠️ Operate only within the laws and spectrum rules for your jurisdiction.
+🧩 Hardware (typical build)
+Subsystem	Part(s)
+MCU/Display	WT32-SC01 or WT32-SC01-PLUS (ESP32-S3) touchscreen
+RF Front-End	TI CC1101 over SPI (CS, GDO0, GDO2)
+Storage	microSD (logs, .sub, profiles)
+I/O	USB-C (power/program), optional speaker/buzzer (I2S)
 
-🧩 Hardware
+Pin mappings and board options live in include/config.h (or similar) for your refactor.
 
-MCU/Display: WT32-SC01 / WT32-SC01-PLUS (ESP32-S3) touchscreen
-
-RF Front-End: TI CC1101 via SPI (CS, GDO0, GDO2)
-
-Storage: microSD (logs, .sub, profiles)
-
-I/O: USB-C power/program; optional speaker/buzzer (I2S)
-
-Pin mappings and board options live in include/config.h (or similar).
-
-🗂️ Project Layout
-/src            # app entry, init, loop, UI dispatch
-/include        # headers, config, helpers
-/lcd            # LVGL / SquareLine UI assets
-/DocsAndImages  # diagrams, photos
-/platformio.ini # PIO envs & board config
+🗂️ Repository Layout
+/src                # app entry, init, loop, UI dispatch
+/include            # headers, config, helpers
+/lcd                # LVGL / SquareLine UI assets
+/DocsAndImages      # diagrams, photos
+/platformio.ini     # PIO envs & board config
 
 ⚙️ Build (PlatformIO)
 
@@ -47,24 +44,36 @@ Select the WT32-SC01-PLUS / ESP32-S3 environment.
 
 Connect via USB-C → Upload.
 
-Typical deps: Arduino-ESP32 core, LVGL, SPI, SD, CC1101 helper libs.
-
-💾 SD Card Layout
-/sub/        # Flipper-style .sub files
-/logs/       # CSV/JSON logs
-/profiles/   # optional radio profiles/presets
+Typical dependencies (pulled automatically by PIO): Arduino-ESP32 core, LVGL, SPI, SD, and CC1101 helper libs.
 
 🔧 Configuration
 
 Pins & board: SPI (MOSI/MISO/SCK/CS), GDO0/GDO2, backlight, touch IRQ → config.h.
 
-Region/band limits: set legal bands, max deviation/data-rate, duty-cycle → config.h / profiles/.
+Region/band limits: legal bands, max deviation/data-rate, duty-cycle → config.h or /profiles/.
 
-UI theme: fonts, colors, and screens → lcd/.
+UI theme: fonts, colors, and screens → /lcd.
 
-📖 Function Reference (from src/main.cpp)
+💾 microSD Layout
+/sub/        # Flipper-style .sub files
+/logs/       # CSV/JSON logs
+/profiles/   # optional radio profile JSON/TXT
 
-Replace this section with your actual functions using the auto-index snippet below. The list below shows the expected categories you’ll see:
+🖱️ Usage (quick start)
+
+Flash firmware (see Build).
+
+Insert microSD with sub/, profiles/ (optional).
+
+Power on → choose a band preset or load .sub.
+
+Use Scan/RSSI tools to explore signals.
+
+Log results to /logs/ for later analysis.
+
+📖 Function Reference
+
+The list below is organized by feature area. To keep it precise and up-to-date with your current src/main.cpp, auto-generate it using the snippet in the next section and paste the results here.
 
 App lifecycle
 
@@ -108,7 +117,7 @@ Storage / settings / logging
 
 loadSettings() / saveSettings() – NVS or JSON.
 
-logEvent(const char* msg) / logRssiSample(uint32_t hz, int dbm) – append logs under /logs/.
+logEvent(const char* msg) / logRssiSample(uint32_t hz, int dbm) – append logs to /logs/.
 
 Wi-Fi utilities
 
@@ -130,19 +139,13 @@ onButtonPlay(), onButtonStop(), onBandPresetX() – LVGL event callbacks.
 
 toast(const char* msg) – user feedback.
 
-Utilities
+Replace these with your actual function names/signatures using the generator below.
 
-formatFrequency(uint32_t hz) → "433.920 MHz".
+🧪 Auto-generate the Function List
 
-formatRssi(int dbm) → "-62 dBm".
+Run one of the following from the repo root to extract a tidy list of function signatures from src/main.cpp and paste it into Function Reference:
 
-millisElapsed(uint32_t since) – timing helper.
-
-🧪 Auto-generate the Function Index (copy-paste)
-
-Run one of these from the repo root to extract a tidy list of function signatures from src/main.cpp and drop it into this README:
-
-Using ripgrep + sed (Linux/macOS):
+ripgrep + sed (Linux/macOS):
 
 rg -n '^[[:space:]]*(?:static[[:space:]]+)?(?:inline[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:<>*&[:space:]]+[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\\([^;]*\\)[[:space:]]*\\{' src/main.cpp \
 | sed -E 's/^([^:]+):[0-9]+:/- `\1:` /; s/[[:space:]]*\\{$/`/; s/src\\/main.cpp://'
@@ -153,13 +156,11 @@ ctags (portable):
 ctags -x --c-kinds=f src/main.cpp | awk '{print "- `" $1 "` (" $5 ":" $3 ")"}'
 
 
-VS Code task: install “Symbol Outline”, open src/main.cpp, copy the Functions list and paste here.
-
-Tip: keep the Function Reference short—group helpers under the feature they support (Radio, Scan, Playback, UI), not alphabetically.
+VS Code: install “Symbol Outline”, open src/main.cpp, copy the Functions list.
 
 🧭 Roadmap
 
-Dual CC1101 (diversity / TX-select)
+Dual-CC1101 (diversity / TX-select)
 
 More protocol presets & analyzers
 
@@ -167,16 +168,22 @@ Favorites & fuzzy search for .sub
 
 OTA updates (Wi-Fi)
 
-⚖️ Legal
+🆘 Troubleshooting
 
-This project is for learning and lawful RF testing. Respect band limits, modulation, duty-cycle and EIRP rules. Transmit only where permitted.
+Black/blank screen: confirm backlight pin and lv_tick/lv_timer calls.
 
-🙏 Credits
+No CC1101 comms: check SPI pins, CS, and GDO0/GDO2 wiring; verify 3.3 V and ground.
 
-LVGL / SquareLine Studio
+.sub won’t play: confirm file path under /sub/ and regional legality profile.
 
-TI CC1101 community
+SD not mounted: ensure card format (FAT/FAT32), CS pin, and SPI.begin() timing.
 
-Contributors & testers
+🤝 Contributing
 
-h_Rat
+PRs welcome! Please include:
+
+Clear repro or test steps
+
+Board/pin config and environment
+
+Before/after behavior (logs/screens)
