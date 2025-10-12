@@ -1,0 +1,207 @@
+#ifndef TTUNES_H
+#define TTUNES_H
+#include "Arduino.h"
+#include <ELECHOUSE_CC1101_SRC_DRV.h>
+#include "Misc/Config.h"
+
+//Other Touchtunes codes are listed in Havoc Firmware https://github.com/furrtek/portapack-havoc/blob/master/firmware/application/apps/ui_touchtunes.hpp
+String jukebox_pwm_prefix = "11111111111111110000000010100010100010001000101000";  //preamble sync and vendor ID x5D converted to PWM. NEC Infrared Protocol
+String jukebox_pwm_freeCredit = "10100010001000101010101000101010100010001000100010"; //x70 and inverse, converted to PWM format: 0=10 1=1000. Signal ends with EOT pulse (10)
+String jukebox_pwm_pauseSong = "10101000100010101000101000100010101000100010100010"; //x32 
+String jukebox_pwm_skipSong = "10001000101010001010001010101000100010100010100010";  //xCA
+//String jukebox_pwm_volumeUp = "10001000101000101010101010100010100010001000100010";  //xD0 this for zone1. most jukebox have multiple zones e.g. patio, indoor, etc.
+//String jukebox_pwm_volumeDown = "10100010100010101010100010100010100010001000100010"; //x50
+String jukebox_pwm_powerOff = "10100010001000100010101010001010101010001000100010"; //x78
+String jukebox_pwm_lockQueue = "10100010100010001010101000101000101010001000100010"; //0x58
+String jukebox_pwm_volumeUp_zone1 = "10001000101000101010101010100010100010001000100010";  //xD0 this for zone1. most jukebox have multiple zones e.g. patio, indoor, etc.
+String jukebox_pwm_volumeDown_zone1 = "10100010100010101010100010100010100010001000100010"; //x50
+String jukebox_pwm_volumeUp_zone2 = "10001010100010101010101000100010100010001000100010"; //x90
+String jukebox_pwm_volumeDown_zone2 = "10101010001010101010001000100010100010001000100010"; //x10
+String jukebox_pwm_volumeUp_zone3 = "10001000101010101010101010001000100010001000100010"; //xC0
+String jukebox_pwm_volumeDown_zone3 = "10100010101010101010001010001000100010001000100010"; //x40
+
+
+#endif
+
+
+byte bytesToSend[1036];
+byte sendPacket[60];
+
+
+String convertToPWM(String bulkBinary, String zeroPwm, String onePwm){
+  String refinedBinary = "";
+  for(int y = 0; y < bulkBinary.length(); y++){
+      if( bulkBinary[y] == '0' ){ refinedBinary += zeroPwm; }
+      else{ refinedBinary += onePwm; }
+    }
+  return refinedBinary;
+}
+
+int convertBinStrToInt(String binaryString){  //could use bitWrite instead
+  int value = 0;
+  for(int z = 0; z < binaryString.length(); z++){
+      value *= 2;
+      if( binaryString[z] == '1' ){ value++; }
+  }
+  return value;
+}
+
+void handleJukeboxSend() {  
+  String button; // = server.arg("remotebutton");
+  String box_id; // = server.arg("jukeboxID");
+  int bruteSize = 0;
+  String jukeboxID;
+  int repeatX; // = server.arg("jukeboxRepeat").toInt();
+  
+  if( server.arg("brutejuke").equals("true") ){ bruteSize = 8; jukeboxID = jukebox_pwm_prefix; }
+  else{ jukeboxID = jukebox_pwm_prefix + box_id; }  //default jukebox ID of 0x00 PWM. Most jukeboxes use the default
+
+  Serial.println(); Serial.print("TX: Jukebox "); Serial.println(button);
+  
+  if( server.arg("remotebutton").equals("freeCredit") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_freeCredit, false, 2, 0); }
+  if( server.arg("remotebutton").equals("pauseSong") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_pauseSong, false, 2, 0); }
+  if( server.arg("remotebutton").equals("skipSong") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_skipSong, false, 2, 0); }
+  //if( server.arg("remotebutton").equals("volumeUp") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_volumeUp, false, 2, 0); }
+  //if( server.arg("remotebutton").equals("volumeDown") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_volumeDown, false, 2, 0); }
+  if( server.arg("remotebutton").equals("powerOff") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_powerOff, false, 2, 0); }
+  //if( server.arg("remotebutton").equals("lockQueue") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_lockQueue, false, 2, 0); }
+  if( server.arg("remotebutton").equals("volumeUpZ1") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_volumeUp_zone1, false, 2, 0); }
+  if( server.arg("remotebutton").equals("volumeDownZ1") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_volumeDown_zone1, false, 2, 0); }
+  if( server.arg("remotebutton").equals("volumeUpZ2") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_volumeUp_zone2, false, 2, 0); }
+  if( server.arg("remotebutton").equals("volumeDownZ2") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_volumeDown_zone2, false, 2, 0); }
+  if( server.arg("remotebutton").equals("volumeUpZ3") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_volumeUp_zone3, false, 2, 0); }
+  if( server.arg("remotebutton").equals("volumeDownZ3") ){ binaryBruteSend(bruteSize, "10", "1000", 433.92, 1.77777, repeatX, 40000, 500, jukeboxID, false, jukebox_pwm_volumeDown_zone3, false, 2, 0); }
+
+  Serial.print("EOTX: Jukebox "); Serial.println(button); Serial.println();
+ 
+  //server.send(200, "text/html", menu_htmlHeader + "<h1>Signal is sent</h1><p><a href=\"/\">Return to Main Menu</a></p><p><a href=\"jukebox\">Return to Jukebox Menu</a></p></body></html>");
+}
+
+void binaryBruteSend(int dipSize, String zero_pwm, String one_pwm, float freqmhz, float baud, int pulseReps, int gapWidth, 
+                     int attemptPause, String prefixBinary, bool convertPrefix, String postfixBinary, bool convertPostfix, byte modulate, float devn){
+                      
+  String firstBinary;
+  String pwmBinary;
+  String subBinary;
+  int missing;
+  int i;
+  int counter;
+  int numOfBytes;
+  int sendSections;
+  int leftoverBytesSize;
+  int subSecStart;
+  int pktLength;
+  int highestDIP;
+  uint8_t chipstate;
+
+  ELECHOUSE_cc1101.setModulation(modulate);
+  ELECHOUSE_cc1101.setDeviation(devn);
+  ELECHOUSE_cc1101.setMHZ(freqmhz);
+  ELECHOUSE_cc1101.setDRate(baud);
+  ELECHOUSE_cc1101.setPA(12);
+ 
+  highestDIP = pow(2, dipSize); //sets the number of combinations to try
+  for(int x = 0; x < highestDIP; x++){
+    firstBinary = String(x, BIN);
+    pwmBinary = "";
+    subBinary = "";
+      
+    //pad binary with zeroes to match DIP size
+    if( firstBinary.length() < dipSize ){
+      missing = dipSize - firstBinary.length();
+      for(int y = 0; y < missing; y++){ firstBinary = "0" + firstBinary; }
+    }
+    Serial.print("Binary data: "); Serial.println(firstBinary);
+
+    //convert pulses to PWM
+    if( dipSize > 0 ){ pwmBinary = convertToPWM(firstBinary, zero_pwm, one_pwm); }
+
+    //add prefix bits and postfix bits to signal. convert to pwm if user indicates
+    if( prefixBinary.length() > 0 && convertPrefix == true ){ pwmBinary = convertToPWM(prefixBinary, zero_pwm, one_pwm) + pwmBinary; }
+    else{ pwmBinary = prefixBinary + pwmBinary; }
+    
+    if( postfixBinary.length() > 0 && convertPostfix == true ){ pwmBinary = pwmBinary + convertToPWM(postfixBinary, zero_pwm, one_pwm); }
+    else{ pwmBinary = pwmBinary + postfixBinary; }
+    
+    //convert pwm binary string to byte array
+    //parse String into 8 character substrings; convert substrings from String binary to int
+    //pad pwm string with trailing zeroes so it can be divided into FULL bytes = string length mod 8 should equal 0
+    //must pad with zeroes on right side, or else compiler pads on the left and it gives incorrect byte
+    counter = 0;
+    if( pwmBinary.length() % 8 > 0 ){
+      counter = 8 - (pwmBinary.length() % 8);
+      for( int m = 0; m < counter; m++ ){ pwmBinary = pwmBinary + "0"; }
+    }
+       
+    numOfBytes = pwmBinary.length() / 8;
+    for(int i = 0; i < numOfBytes; i++){
+      subBinary = pwmBinary.substring( (i * 8), (((i + 1) * 8) )); //substring excludes last indexed character. Very confusing
+      bytesToSend[i] = convertBinStrToInt( subBinary );      
+    }
+
+    
+    Serial.print("Number of bytes to send: "); Serial.println(numOfBytes);
+    Serial.print("Hex of data: "); for( int y = 0; y < numOfBytes; y++){ Serial.print(" 0x");Serial.print(bytesToSend[y], HEX); };
+    Serial.println();
+    //ELECHOUSE_cc1101.flushTxFifo();
+    //ELECHOUSE_cc1101.WaitForIdle();
+    //ELECHOUSE_cc1101.FlushTxFifo();
+    //digitalWrite(LED_BUILTIN, LOW);
+
+    
+    for( int k = 0; k <= pulseReps; k++ ){
+      ELECHOUSE_cc1101.SpiWriteBurstReg(CC1101_TXFIFO, bytesToSend, 60); //fill up TX FIFO before starting transmit. FIFO is 64bytes, but I only fill to 60. If packet is smaller than 60,
+                                                                         //any extra bytes will be flushed from TX FIFO array after transmission
+      if( numOfBytes < 256 ){
+        ELECHOUSE_cc1101.setPacketLength(numOfBytes);
+        ELECHOUSE_cc1101.SetTx(); //starting transmitting bytes
+        
+        for( int x = 60; x < numOfBytes; x++){
+          while(digitalRead()); //wait for the TX FIFO to be below 61 bytes, then we can start adding more bytes. GDOx_CFG = 0x02 page 62 datasheet
+          ELECHOUSE_cc1101.SpiWriteReg(CC1101_TXFIFO, bytesToSend[x]);
+          yield();
+        }
+        
+      }else{
+        //debrujin & long sequence transmission is work in progress
+        //Texas Instruments document DN500 describes large packet transmissions 
+        ELECHOUSE_cc1101.setPacketLength( 4 );  //the FIFO threshold value. If you change FIFOTHR, you must change this length value
+        //ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 2); //Set to infinite packet mode
+        ELECHOUSE_cc1101.setLengthConfig(2); //set to infinite length packet mode
+        //Serial.println("starting debruijn transmit");
+        //Serial.print("TX FIFO size:" ); Serial.println( ELECHOUSE_cc1101.SpiReadStatus(CC1101_TXBYTES), HEX);
+        ELECHOUSE_cc1101.SetTx(); //starting transmitting bytes
+        //Serial.println("transmit started");
+      
+        for(int x = 60; x < numOfBytes; x++){
+          while(digitalRead(CC1101_GDO0));
+          ELECHOUSE_cc1101.SpiWriteReg(CC1101_TXFIFO, bytesToSend[x]);
+          yield();
+        }
+        
+        while(digitalRead(CC1101_GDO0)); //once GDO0 de-asserts, only 4 bytes should be left to be transmitted      
+        //ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 0); //Set to fixed packet mode
+        ELECHOUSE_cc1101.setLengthConfig(0); //set to fixed packet mode
+      }
+
+      
+      yield();
+      chipstate = 0xFF;
+      while(chipstate != 0x01){ chipstate = (ELECHOUSE_cc1101.SpiReadStatus(CC1101_MARCSTATE) & 0x1F); }
+      //ELECHOUSE_cc1101.WaitForIdle(); //chip is programmed to goto idle after transmit (page 28,81 in datasheet. MCSM1 register). Wait for idle in case transmission is slower than code execution??
+      //can only flush FIFO when chip is IDLE or in UNDERFLOW state
+      //Serial.println("flushing tx fifo");
+      
+      if( ELECHOUSE_cc1101.SpiReadStatus(CC1101_TXBYTES) > 0 ){ ELECHOUSE_cc1101.SpiStrobe(CC1101_SFTX); }
+      //ELECHOUSE_cc1101.FlushTxFifo(); ///flush tx fifo in case extra bytes 
+      //yield();
+      //ELECHOUSE_cc1101.WaitForIdle();
+      delayMicroseconds(gapWidth);
+    }
+    
+    memset(bytesToSend, 0, 1036);
+   
+    //digitalWrite(LED_BUILTIN, HIGH);
+    delay(attemptPause);
+  }
+}
