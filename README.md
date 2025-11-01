@@ -1,5 +1,9 @@
 # Wave Sentinel (Refactored)
 
+## Flash WT32-SC01-PLUS
+[Open Web Installer](https://ozinfl.github.io/WaveSentinel-refactored2/)
+> Use Chrome/Edge on desktop over HTTPS. Connect via USB-C.
+
 ESP32-S3 + CC1101 handheld for Sub-GHz exploration, Flipper-style `.sub` playback, band scanning, and field-friendly RF workflows.
 
 > ⚠️ Operate only within the laws and spectrum rules for your jurisdiction. Transmit **only** where permitted.
