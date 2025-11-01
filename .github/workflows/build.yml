@@ -1,5 +1,8 @@
 name: build-and-publish
 
+permissions:
+  contents: write    # <-- required to push to gh-pages
+
 on:
   push:
     branches: [ main ]
