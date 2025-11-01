@@ -1,0 +1,156 @@
+name: build-and-publish
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+env:
+  # If you know your PIO env name, put it here (e.g. wt32-sc01-plus).
+  # If left blank, the job will auto-pick when there's only one build folder.
+  WORKFLOW_ENV: ""
+  DIST_DIR: dist
+  PAGES_BRANCH: gh-pages
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/penv
+          key: pio-${{ runner.os }}-${{ hashFiles('**/platformio.ini') }}
+
+      - name: Install PlatformIO + tools
+        run: |
+          python -m pip install -U platformio esptool
+
+      - name: Build (PlatformIO)
+        run: |
+          # Build all envs (handles single/multi-env projects)
+          pio run
+          echo "Available build dirs:" && ls -1 .pio/build || true
+
+      - name: Detect env and firmware
+        id: detect
+        shell: bash
+        run: |
+          set -e
+          mkdir -p "$DIST_DIR"
+          ENV_NAME="${WORKFLOW_ENV}"
+          if [ -z "$ENV_NAME" ]; then
+            # Auto-pick: if there is exactly one build dir, use it
+            COUNT=$(find .pio/build -maxdepth 1 -mindepth 1 -type d | wc -l | xargs)
+            if [ "$COUNT" = "1" ]; then
+              ENV_NAME=$(basename $(find .pio/build -maxdepth 1 -mindepth 1 -type d))
+              echo "Auto-selected env: $ENV_NAME"
+            else
+              echo "Multiple envs detected. Set env.WORKFLOW_ENV to one of:"
+              ls -1 .pio/build
+              exit 1
+            fi
+          fi
+          echo "env_name=$ENV_NAME" >> $GITHUB_OUTPUT
+
+          # Pick firmware name (Arduino = firmware.bin, ESP-IDF = project.bin)
+          FW=""
+          if [ -f ".pio/build/$ENV_NAME/firmware.bin" ]; then FW=".pio/build/$ENV_NAME/firmware.bin"; fi
+          if [ -z "$FW" ] && [ -f ".pio/build/$ENV_NAME/project.bin" ]; then FW=".pio/build/$ENV_NAME/project.bin"; fi
+          if [ -z "$FW" ]; then echo "No firmware bin found."; exit 1; fi
+          echo "fw=$FW" >> $GITHUB_OUTPUT
+
+          # Copy parts if present
+          cp -v ".pio/build/$ENV_NAME/bootloader.bin" "$DIST_DIR/bootloader.bin" || true
+          cp -v ".pio/build/$ENV_NAME/partitions.bin"  "$DIST_DIR/partitions.bin" || true
+          cp -v "$FW" "$DIST_DIR/app.bin"
+
+      - name: Ensure boot_app0.bin
+        run: |
+          if [ ! -f "$DIST_DIR/boot_app0.bin" ]; then
+            curl -L -o $DIST_DIR/boot_app0.bin https://raw.githubusercontent.com/espressif/arduino-esp32/2.0.17/tools/partitions/boot_app0.bin
+          fi
+
+      - name: Merge to single binary (ESP32-S3)
+        run: |
+          # Typical S3 offsets: bootloader 0x1000, partitions 0x8000, boot_app0 0xE000, app 0x10000
+          # We merge into one file that ESP-Web-Tools can flash at offset 0.
+          esptool --chip esp32s3 merge_bin \
+            -o $DIST_DIR/merged-firmware.bin \
+            --flash_mode dio --flash_freq 80m --flash_size 16MB \
+            0x1000 $DIST_DIR/bootloader.bin \
+            0x8000 $DIST_DIR/partitions.bin \
+            0xe000 $DIST_DIR/boot_app0.bin \
+            0x10000 $DIST_DIR/app.bin
+
+      - name: Compute version string
+        id: ver
+        run: |
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            GIT_SHORT=$(git rev-parse --short HEAD)
+            echo "version=0.0.$(date +%Y%m%d)-$GIT_SHORT" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Write manifest.json (ESP-Web-Tools)
+        run: |
+          cat > $DIST_DIR/manifest.json << 'JSON'
+          {
+            "name": "WaveSentinel (WT32-SC01-PLUS)",
+            "version": "__VERSION__",
+            "new_install_prompt_erase": true,
+            "builds": [
+              {
+                "chipFamily": "ESP32-S3",
+                "improv": false,
+                "parts": [
+                  { "path": "merged-firmware.bin", "offset": 0 }
+                ]
+              }
+            ]
+          }
+          JSON
+          sed -i "s/__VERSION__/${{ steps.ver.outputs.version }}/" $DIST_DIR/manifest.json
+
+      - name: Create index.html (web flasher)
+        run: |
+          cat > $DIST_DIR/index.html << 'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>WaveSentinel — WT32-SC01-PLUS Flasher</title>
+          <h1>WaveSentinel — WT32-SC01-PLUS</h1>
+          <p>Connect your WT32-SC01-PLUS (ESP32-S3) via USB, then click Install:</p>
+          <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+          <esp-web-install-button manifest="./manifest.json">
+            <button slot="activate" style="font-size:1.1rem;padding:.6rem 1rem;">Install WaveSentinel</button>
+            <span slot="unsupported">Use Chrome/Edge on desktop over HTTPS.</span>
+          </esp-web-install-button>
+          <p style="margin-top:1rem;">After flashing, open the serial console or app UI to configure Wi-Fi.</p>
+          HTML
+
+      - name: Publish to GitHub Pages (gh-pages)
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ${{ env.DIST_DIR }}
+          publish_branch: ${{ env.PAGES_BRANCH }}
+          force_orphan: true
