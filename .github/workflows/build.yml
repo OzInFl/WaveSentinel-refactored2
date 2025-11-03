@@ -1,7 +1,7 @@
 name: build-and-publish
 
 permissions:
-  contents: write    # <-- required to push to gh-pages
+  contents: write  # required to push to gh-pages
 
 on:
   push:
@@ -11,8 +11,7 @@ on:
     types: [published]
 
 env:
-  # If you know your PIO env name, put it here (e.g. wt32-sc01-plus).
-  # If left blank, the job will auto-pick when there's only one build folder.
+  # Your PlatformIO environment name (from [env:...]) — adjust if needed.
   WORKFLOW_ENV: ""
   DIST_DIR: dist
   PAGES_BRANCH: gh-pages
@@ -42,66 +41,45 @@ jobs:
             ~/.platformio/penv
           key: pio-${{ runner.os }}-${{ hashFiles('**/platformio.ini') }}
 
-      - name: Install PlatformIO + tools
+      - name: Install PlatformIO (and helpers)
         run: |
-          python -m pip install -U platformio esptool
+          python -m pip install -U platformio
 
       - name: Build (PlatformIO)
         run: |
-          # Build all envs (handles single/multi-env projects)
-          pio run
-          echo "Available build dirs:" && ls -1 .pio/build || true
+          # Build the specified env
+          pio run -e "$WORKFLOW_ENV"
+          echo "Built files in .pio/build/$WORKFLOW_ENV:"
+          ls -al .pio/build/"$WORKFLOW_ENV" || true
 
-      - name: Detect env and firmware
-        id: detect
+      - name: Collect firmware parts (no merge)
         shell: bash
         run: |
           set -e
-          mkdir -p "$DIST_DIR"
-          ENV_NAME="${WORKFLOW_ENV}"
-          if [ -z "$ENV_NAME" ]; then
-            # Auto-pick: if there is exactly one build dir, use it
-            COUNT=$(find .pio/build -maxdepth 1 -mindepth 1 -type d | wc -l | xargs)
-            if [ "$COUNT" = "1" ]; then
-              ENV_NAME=$(basename $(find .pio/build -maxdepth 1 -mindepth 1 -type d))
-              echo "Auto-selected env: $ENV_NAME"
-            else
-              echo "Multiple envs detected. Set env.WORKFLOW_ENV to one of:"
-              ls -1 .pio/build
-              exit 1
-            fi
-          fi
-          echo "env_name=$ENV_NAME" >> $GITHUB_OUTPUT
+          ENV_NAME="$WORKFLOW_ENV"
+          OUT="$DIST_DIR"
+          mkdir -p "$OUT"
 
-          # Pick firmware name (Arduino = firmware.bin, ESP-IDF = project.bin)
+          # Determine firmware filename (Arduino vs ESP-IDF)
           FW=""
           if [ -f ".pio/build/$ENV_NAME/firmware.bin" ]; then FW=".pio/build/$ENV_NAME/firmware.bin"; fi
           if [ -z "$FW" ] && [ -f ".pio/build/$ENV_NAME/project.bin" ]; then FW=".pio/build/$ENV_NAME/project.bin"; fi
-          if [ -z "$FW" ]; then echo "No firmware bin found."; exit 1; fi
-          echo "fw=$FW" >> $GITHUB_OUTPUT
+          if [ -z "$FW" ]; then echo "No firmware bin found in .pio/build/$ENV_NAME"; exit 1; fi
 
-          # Copy parts if present
-          cp -v ".pio/build/$ENV_NAME/bootloader.bin" "$DIST_DIR/bootloader.bin" || true
-          cp -v ".pio/build/$ENV_NAME/partitions.bin"  "$DIST_DIR/partitions.bin" || true
-          cp -v "$FW" "$DIST_DIR/app.bin"
+          # Copy required parts (fail if missing — mirrors PIO flash layout for ESP32-S3 Arduino)
+          cp -v ".pio/build/$ENV_NAME/bootloader.bin" "$OUT/bootloader.bin"
+          cp -v ".pio/build/$ENV_NAME/partitions.bin"  "$OUT/partitions.bin"
+          cp -v "$FW" "$OUT/app.bin"
 
-      - name: Ensure boot_app0.bin
-        run: |
-          if [ ! -f "$DIST_DIR/boot_app0.bin" ]; then
-            curl -L -o $DIST_DIR/boot_app0.bin https://raw.githubusercontent.com/espressif/arduino-esp32/2.0.17/tools/partitions/boot_app0.bin
+          # boot_app0.bin is sometimes not emitted; fetch a known-good if absent
+          if [ -f ".pio/build/$ENV_NAME/boot_app0.bin" ]; then
+            cp -v ".pio/build/$ENV_NAME/boot_app0.bin" "$OUT/boot_app0.bin"
+          else
+            curl -L -o "$OUT/boot_app0.bin" https://raw.githubusercontent.com/espressif/arduino-esp32/2.0.17/tools/partitions/boot_app0.bin
           fi
 
-      - name: Merge to single binary (ESP32-S3)
-        run: |
-          # Typical S3 offsets: bootloader 0x1000, partitions 0x8000, boot_app0 0xE000, app 0x10000
-          # We merge into one file that ESP-Web-Tools can flash at offset 0.
-          esptool --chip esp32s3 merge_bin \
-            -o $DIST_DIR/merged-firmware.bin \
-            --flash_mode dio --flash_freq 80m --flash_size 16MB \
-            0x1000 $DIST_DIR/bootloader.bin \
-            0x8000 $DIST_DIR/partitions.bin \
-            0xe000 $DIST_DIR/boot_app0.bin \
-            0x10000 $DIST_DIR/app.bin
+          echo "Dist contents:"
+          ls -al "$OUT"
 
       - name: Compute version string
         id: ver
@@ -113,25 +91,39 @@ jobs:
             echo "version=0.0.$(date +%Y%m%d)-$GIT_SHORT" >> $GITHUB_OUTPUT
           fi
 
-      - name: Write manifest.json (ESP-Web-Tools)
+      - name: Write manifest.json (multi-part @ real offsets)
+        shell: bash
         run: |
-          cat > $DIST_DIR/manifest.json << 'JSON'
+          set -e
+          OUT="$DIST_DIR"
+          # Conditionally include boot_app0 line with correct comma handling
+          BOOT_APP0_LINE='{ "path": "boot_app0.bin", "offset": 57344 },'
+          if [ ! -f "$OUT/boot_app0.bin" ]; then
+            BOOT_APP0_LINE=""
+          fi
+
+          cat > "$OUT/manifest.json" << JSON
           {
             "name": "WaveSentinel (WT32-SC01-PLUS)",
-            "version": "__VERSION__",
+            "version": "${{ steps.ver.outputs.version }}",
             "new_install_prompt_erase": true,
             "builds": [
               {
                 "chipFamily": "ESP32-S3",
                 "improv": false,
                 "parts": [
-                  { "path": "merged-firmware.bin", "offset": 0 }
+                  { "path": "bootloader.bin", "offset": 0 },
+                  { "path": "partitions.bin",  "offset": 32768 },
+                  ${BOOT_APP0_LINE}
+                  { "path": "app.bin",         "offset": 65536 }
                 ]
               }
             ]
           }
           JSON
-          sed -i "s/__VERSION__/${{ steps.ver.outputs.version }}/" $DIST_DIR/manifest.json
+
+          echo "----- manifest.json -----"
+          cat "$OUT/manifest.json"
 
       - name: Create index.html (web flasher)
         run: |
