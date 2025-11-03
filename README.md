@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/banner_wavesentinel.png" width="600" alt="WaveSentinel Banner">
-</p>
-
 
 # Wave Sentinel (Refactored)
 
