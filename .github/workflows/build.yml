@@ -12,7 +12,7 @@ on:
 
 env:
   # Your PlatformIO environment name (from [env:...]) — adjust if needed.
-  WORKFLOW_ENV: ""
+  WORKFLOW_ENV: "WaveSentinel"
   DIST_DIR: dist
   PAGES_BRANCH: gh-pages
 
