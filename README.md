@@ -1,12 +1,30 @@
+<p align="center">
+  <img src="docs/banner_wavesentinel.png" width="600" alt="WaveSentinel Banner">
+</p>
+
+
 # Wave Sentinel (Refactored)
 
+<p align="center">
+  <a href="https://github.com/OzInFl/WaveSentinel-refactored2">
+    <img src="https://img.shields.io/badge/GitHub-Repo-181717?logo=github&logoColor=white&style=for-the-badge" alt="GitHub Repo">
+  </a>
+  <a href="https://ozinfl.github.io/WaveSentinel-refactored2/">
+    <img src="https://img.shields.io/badge/Open%20Web%20Installer-ESP32S3-0A66C2?logo=espressif&logoColor=white&style=for-the-badge" alt="Open Web Installer">
+  </a>
+</p>
+
+---
+
 ## Flash WT32-SC01-PLUS
-[Open Web Installer](https://ozinfl.github.io/WaveSentinel-refactored2/)
-> Use Chrome/Edge on desktop over HTTPS. Connect via USB-C.
 
-ESP32-S3 + CC1101 handheld for Sub-GHz exploration, Flipper-style `.sub` playback, band scanning, and field-friendly RF workflows.
+> 💡 Use **Chrome or Edge** on desktop over **HTTPS**.  
+> Plug your board in via USB-C and click **Open Web Installer** above.
 
-> ⚠️ Operate only within the laws and spectrum rules for your jurisdiction. Transmit **only** where permitted.
+ESP32-S3 + CC1101 handheld for sub-GHz exploration, Flipper-style `.sub` playback, band scanning, and field-friendly RF workflows.
+
+> ⚠️ Operate only within the laws and spectrum rules for your jurisdiction.  
+> Transmit **only** where permitted.
 
 ---
 
