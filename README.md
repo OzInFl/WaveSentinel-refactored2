@@ -1,5 +1,5 @@
 
-# Wave Sentinel (Refactored)
+# Wave Sentinel (Refactored) CC1101 Utility
 
 <p align="center">
   <a href="https://github.com/OzInFl/WaveSentinel-refactored2">
