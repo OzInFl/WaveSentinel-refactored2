@@ -1,0 +1,71 @@
+name: Build & Deploy Web Flasher
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: pio run -e WaveSentinel
+
+      - name: Prepare deploy directory
+        run: |
+          mkdir -p deploy
+          cp .pio/build/WaveSentinel/firmware.bin  deploy/app.bin
+          cp .pio/build/WaveSentinel/bootloader.bin deploy/bootloader.bin
+          cp .pio/build/WaveSentinel/partitions.bin deploy/partitions.bin
+          cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin deploy/boot_app0.bin
+          cp docs/WaveSentinel.png deploy/WaveSentinel.png
+          cp web/index.html deploy/index.html
+          touch deploy/.nojekyll
+
+      - name: Generate manifest.json
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          DATE=$(date +%Y%m%d)
+          python3 -c "
+          import json
+          manifest = {
+              'name': 'WaveSentinel (WT32-SC01-PLUS)',
+              'version': '1.0.${DATE}-${SHORT_SHA}',
+              'new_install_prompt_erase': True,
+              'builds': [{
+                  'chipFamily': 'ESP32-S3',
+                  'improv': False,
+                  'parts': [
+                      {'path': 'bootloader.bin', 'offset': 0},
+                      {'path': 'partitions.bin', 'offset': 32768},
+                      {'path': 'boot_app0.bin', 'offset': 57344},
+                      {'path': 'app.bin', 'offset': 65536}
+                  ]
+              }]
+          }
+          with open('deploy/manifest.json', 'w') as f:
+              json.dump(manifest, f, indent=2)
+          "
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy
+          force_orphan: true

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WaveSentinel — Web Flasher</title>
+  <meta name="description" content="Flash WaveSentinel firmware to your WT32-SC01-PLUS ESP32-S3 directly from the browser.">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+    :root{
+      --bg:#0a0a0f;
+      --surface:#12121a;
+      --border:#1e1e2e;
+      --gold:#c8a74e;
+      --gold-light:#e6c868;
+      --gold-dark:#8b6914;
+      --cyan:#00d4ff;
+      --text:#e0e0e0;
+      --text-dim:#888;
+      --green:#00ff6a;
+      --red:#ff4444;
+    }
+
+    body{
+      font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+      background:var(--bg);
+      color:var(--text);
+      min-height:100vh;
+      overflow-x:hidden;
+    }
+
+    /* Animated gradient background */
+    body::before{
+      content:'';
+      position:fixed;
+      inset:0;
+      background:
+        radial-gradient(ellipse at 20% 50%, rgba(200,167,78,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 20%, rgba(0,212,255,0.04) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 100%, rgba(200,167,78,0.03) 0%, transparent 40%);
+      z-index:-1;
+    }
+
+    .container{
+      max-width:720px;
+      margin:0 auto;
+      padding:2rem 1.5rem 4rem;
+    }
+
+    /* Header */
+    .header{
+      text-align:center;
+      margin-bottom:2.5rem;
+    }
+
+    .logo{
+      width:180px;
+      height:auto;
+      margin-bottom:1.2rem;
+      filter:drop-shadow(0 0 20px rgba(200,167,78,0.3));
+    }
+
+    h1{
+      font-size:2rem;
+      font-weight:700;
+      background:linear-gradient(135deg, var(--gold-light), var(--gold), var(--gold-dark));
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      background-clip:text;
+      letter-spacing:0.05em;
+      margin-bottom:0.3rem;
+    }
+
+    .tagline{
+      color:var(--text-dim);
+      font-size:0.95rem;
+      letter-spacing:0.1em;
+      text-transform:uppercase;
+    }
+
+    /* Flash Card */
+    .flash-card{
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:2rem;
+      margin-bottom:2rem;
+      position:relative;
+      overflow:hidden;
+    }
+
+    .flash-card::before{
+      content:'';
+      position:absolute;
+      top:0;left:0;right:0;
+      height:2px;
+      background:linear-gradient(90deg, transparent, var(--gold), transparent);
+    }
+
+    .flash-card h2{
+      font-size:1.2rem;
+      color:var(--gold-light);
+      margin-bottom:1rem;
+      display:flex;
+      align-items:center;
+      gap:0.5rem;
+    }
+
+    .flash-card h2 .icon{font-size:1.4rem}
+
+    .flash-instructions{
+      color:var(--text-dim);
+      line-height:1.7;
+      margin-bottom:1.5rem;
+    }
+
+    .flash-instructions ol{
+      padding-left:1.2rem;
+    }
+
+    .flash-instructions li{
+      margin-bottom:0.4rem;
+    }
+
+    .flash-instructions code{
+      background:#1a1a2e;
+      padding:0.15rem 0.4rem;
+      border-radius:4px;
+      font-size:0.85rem;
+      color:var(--cyan);
+    }
+
+    /* ESP Web Tools button styling */
+    .install-wrapper{
+      display:flex;
+      justify-content:center;
+      margin:1.5rem 0;
+    }
+
+    esp-web-install-button{
+      display:inline-block;
+    }
+
+    esp-web-install-button button{
+      font-size:1.1rem;
+      font-weight:600;
+      padding:0.8rem 2.5rem;
+      border:none;
+      border-radius:10px;
+      cursor:pointer;
+      background:linear-gradient(135deg, var(--gold), var(--gold-dark));
+      color:#000;
+      letter-spacing:0.03em;
+      transition:all 0.3s ease;
+      box-shadow:0 4px 15px rgba(200,167,78,0.3);
+    }
+
+    esp-web-install-button button:hover{
+      transform:translateY(-2px);
+      box-shadow:0 6px 25px rgba(200,167,78,0.5);
+      background:linear-gradient(135deg, var(--gold-light), var(--gold));
+    }
+
+    esp-web-install-button [slot="unsupported"]{
+      display:block;
+      text-align:center;
+      padding:1rem;
+      background:#1a1a0a;
+      border:1px solid #332200;
+      border-radius:8px;
+      color:var(--gold);
+      font-size:0.9rem;
+    }
+
+    /* Features Grid */
+    .features{
+      display:grid;
+      grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+      gap:1rem;
+      margin-bottom:2rem;
+    }
+
+    .feature{
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:1.2rem;
+      transition:border-color 0.3s ease;
+    }
+
+    .feature:hover{
+      border-color:var(--gold-dark);
+    }
+
+    .feature h3{
+      font-size:0.9rem;
+      color:var(--gold-light);
+      margin-bottom:0.5rem;
+      display:flex;
+      align-items:center;
+      gap:0.4rem;
+    }
+
+    .feature p{
+      font-size:0.82rem;
+      color:var(--text-dim);
+      line-height:1.5;
+    }
+
+    /* Specs Table */
+    .specs{
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:2rem;
+      margin-bottom:2rem;
+    }
+
+    .specs h2{
+      font-size:1.2rem;
+      color:var(--gold-light);
+      margin-bottom:1rem;
+    }
+
+    .specs-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:0.6rem 2rem;
+    }
+
+    .spec-item{
+      display:flex;
+      justify-content:space-between;
+      padding:0.4rem 0;
+      border-bottom:1px solid #1a1a2e;
+      font-size:0.85rem;
+    }
+
+    .spec-item .label{color:var(--text-dim)}
+    .spec-item .value{color:var(--text);font-weight:500}
+
+    /* Footer */
+    .footer{
+      text-align:center;
+      padding-top:2rem;
+      border-top:1px solid var(--border);
+    }
+
+    .footer p{
+      color:var(--text-dim);
+      font-size:0.8rem;
+      margin-bottom:0.3rem;
+    }
+
+    .footer a{
+      color:var(--gold);
+      text-decoration:none;
+    }
+
+    .footer a:hover{text-decoration:underline}
+
+    /* Responsive */
+    @media(max-width:600px){
+      .container{padding:1.5rem 1rem 3rem}
+      h1{font-size:1.6rem}
+      .specs-grid{grid-template-columns:1fr}
+      .logo{width:140px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <div class="header">
+      <img src="WaveSentinel.png" alt="WaveSentinel" class="logo">
+      <h1>WAVE SENTINEL</h1>
+      <p class="tagline">Sub-GHz &middot; WiFi &middot; Bluetooth Testing Tool</p>
+    </div>
+
+    <!-- Flash Card -->
+    <div class="flash-card">
+      <h2><span class="icon">&#9889;</span> Web Installer</h2>
+      <div class="flash-instructions">
+        <ol>
+          <li>Connect your <strong>WT32-SC01-PLUS</strong> to USB</li>
+          <li>Click <strong>Install WaveSentinel</strong> below</li>
+          <li>Select the serial port when prompted</li>
+          <li>Wait for the flash to complete (~60 seconds)</li>
+        </ol>
+      </div>
+
+      <div class="install-wrapper">
+        <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+        <esp-web-install-button manifest="./manifest.json">
+          <button slot="activate">Install WaveSentinel</button>
+          <span slot="unsupported">
+            &#9888; Web Serial requires <strong>Chrome</strong> or <strong>Edge</strong> on desktop.<br>
+            Mobile browsers and Firefox are not supported.
+          </span>
+        </esp-web-install-button>
+      </div>
+    </div>
+
+    <!-- Features -->
+    <div class="features">
+      <div class="feature">
+        <h3>&#128225; Sub-GHz RF</h3>
+        <p>CC1101-based capture, playback, scanning, and protocol analysis. Flipper .sub file compatible.</p>
+      </div>
+      <div class="feature">
+        <h3>&#128246; WiFi Tools</h3>
+        <p>Network scanner, beacon flood, deauth testing, promiscuous sniffer, and STA join.</p>
+      </div>
+      <div class="feature">
+        <h3>&#128268; BLE Tools</h3>
+        <p>BLE advertisement spam (Apple, Android, Windows) and BLE device scanner.</p>
+      </div>
+      <div class="feature">
+        <h3>&#127911; RF Protocols</h3>
+        <p>Princeton, KeeLoq, CAME, Nice FLO, GateTX, Linear, and more. Real-time analyzer.</p>
+      </div>
+      <div class="feature">
+        <h3>&#128444; Touch Display</h3>
+        <p>3.5" 480x320 capacitive touchscreen with LVGL UI. No external tools needed.</p>
+      </div>
+      <div class="feature">
+        <h3>&#128190; SD Card</h3>
+        <p>Save and load Flipper .sub captures, presets, and configurations to microSD.</p>
+      </div>
+    </div>
+
+    <!-- Specs -->
+    <div class="specs">
+      <h2>Hardware Specs</h2>
+      <div class="specs-grid">
+        <div class="spec-item">
+          <span class="label">MCU</span>
+          <span class="value">ESP32-S3 @ 240 MHz</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Display</span>
+          <span class="value">3.5" ST7796 IPS</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Touch</span>
+          <span class="value">FT5x06 Capacitive</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">RF Module</span>
+          <span class="value">CC1101 (300-928 MHz)</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Memory</span>
+          <span class="value">8 MB PSRAM + 16 MB Flash</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Storage</span>
+          <span class="value">microSD (SPI)</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Audio</span>
+          <span class="value">I2S DAC Output</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Connectivity</span>
+          <span class="value">WiFi + BLE 5.0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>Built with ESP-IDF + Arduino + LVGL + LovyanGFX</p>
+      <p><a href="https://github.com/OzInFl/WaveSentinel-refactored2">GitHub Repository</a></p>
+    </div>
+
+  </div>
+</body>
+</html>
