@@ -198,10 +198,51 @@ void setup()
   if (deviceAuthorized) {
     lv_label_set_text(ui_lblSplashStatus, "TAP ANYWHERE TO BEGIN");
   } else {
-    lv_label_set_text(ui_lblSplashStatus, "UNAUTHORIZED DEVICE");
-    lv_label_set_text(ui_lblSplash, "Contact admin with SN above");
-    lv_obj_set_style_text_color(ui_lblSplashStatus, lv_color_hex(0xFF4444),
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
+    // Hide normal splash labels
+    lv_obj_add_flag(ui_lblSplashStatus, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_lblSplash, LV_OBJ_FLAG_HIDDEN);
+
+    // --- Large unauthorized popup overlay ---
+    lv_obj_t *authPanel = lv_obj_create(ui_scrSplash);
+    lv_obj_set_size(authPanel, 450, 300);
+    lv_obj_center(authPanel);
+    lv_obj_clear_flag(authPanel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(authPanel, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(authPanel, 245, LV_PART_MAIN);
+    lv_obj_set_style_border_color(authPanel, lv_color_hex(0xFF4444), LV_PART_MAIN);
+    lv_obj_set_style_border_width(authPanel, 3, LV_PART_MAIN);
+    lv_obj_set_style_radius(authPanel, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(authPanel, 10, LV_PART_MAIN);
+    lv_obj_set_flex_flow(authPanel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(authPanel, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(authPanel, 6, LV_PART_MAIN);
+
+    // Big red heading
+    lv_obj_t *lblTitle = lv_label_create(authPanel);
+    lv_label_set_text(lblTitle, "UNAUTHORIZED DEVICE");
+    lv_obj_set_style_text_color(lblTitle, lv_color_hex(0xFF4444), LV_PART_MAIN);
+    lv_obj_set_style_text_font(lblTitle, &lv_font_montserrat_24, LV_PART_MAIN);
+
+    // Serial number prominently
+    lv_obj_t *lblSerial = lv_label_create(authPanel);
+    char snBuf[32];
+    snprintf(snBuf, sizeof(snBuf), "SN: %s", deviceSerial);
+    lv_label_set_text(lblSerial, snBuf);
+    lv_obj_set_style_text_color(lblSerial, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(lblSerial, &lv_font_montserrat_18, LV_PART_MAIN);
+
+    // QR code linking to web page
+    static const char *qrUrl = "https://ozinfl.github.io/WaveSentinel-refactored2/";
+    lv_obj_t *qr = lv_qrcode_create(authPanel, 140, lv_color_hex(0x000000), lv_color_hex(0xFFFFFF));
+    lv_qrcode_update(qr, qrUrl, strlen(qrUrl));
+    lv_obj_set_style_border_color(qr, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(qr, 4, LV_PART_MAIN);
+
+    // Instruction text below QR
+    lv_obj_t *lblInfo = lv_label_create(authPanel);
+    lv_label_set_text(lblInfo, "Scan QR or contact admin with serial above");
+    lv_obj_set_style_text_color(lblInfo, lv_color_hex(0x888888), LV_PART_MAIN);
+    lv_obj_set_style_text_font(lblInfo, &ui_font_Verdana12, LV_PART_MAIN);
   }
 
   Print_Debug("Initializing CC1101...");
