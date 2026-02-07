@@ -163,11 +163,14 @@ void setup()
   snprintf(deviceSerial, sizeof(deviceSerial), "%012llX", chipId);
   Print_Debug("Device SN: %s", deviceSerial);
 
-  // Show version + serial on splash
+  // Show version + serial on splash with black background for readability
   char splashInfo[64];
   snprintf(splashInfo, sizeof(splashInfo), "v%d.%d.%d  SN:%s",
            APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, deviceSerial);
   lv_label_set_text(ui_lblVersion, splashInfo);
+  lv_obj_set_style_bg_color(ui_lblVersion, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_lblVersion, 180, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_pad_all(ui_lblVersion, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
 
   // Authorization check (empty list = all devices allowed)
   if (AUTHORIZED_COUNT > 0) {
@@ -183,6 +186,14 @@ void setup()
   // Replace splash click handler with auth-aware version
   lv_obj_remove_event_cb(ui_scrSplash, ui_event_scrSplash);
   lv_obj_add_event_cb(ui_scrSplash, auth_splash_event, LV_EVENT_CLICKED, NULL);
+
+  // Black background on splash labels for readability over image
+  lv_obj_set_style_bg_color(ui_lblSplashStatus, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_lblSplashStatus, 180, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_pad_all(ui_lblSplashStatus, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(ui_lblSplash, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(ui_lblSplash, 180, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_pad_all(ui_lblSplash, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
 
   if (deviceAuthorized) {
     lv_label_set_text(ui_lblSplashStatus, "TAP ANYWHERE TO BEGIN");
