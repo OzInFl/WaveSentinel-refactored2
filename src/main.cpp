@@ -18,6 +18,7 @@
 // ---------------------------------------------------------------
 
 #include "Misc/Config.h"
+#include "Misc/AuthorizedDevices.h"
 #include "Display/Display.h"
 #include "SubGhz/SubGhz.h"
 #include "WiFi/WiFix.h"
@@ -56,6 +57,10 @@ Audio audio;
 // Preferences Library
 Preferences prefs;
 
+// Device serial number (populated in setup from ESP32 eFuse MAC)
+static char deviceSerial[13] = {0};
+static bool deviceAuthorized = true;
+
 // WiFi Join — keyboard overlay state
 static lv_obj_t *wifiJoinPanel = NULL;
 static lv_obj_t *wifiJoinTextarea = NULL;
@@ -71,6 +76,16 @@ const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // FUNCTIONS
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------
+// Auth-aware splash screen click handler
+// Replaces the SquareLine-generated ui_event_scrSplash at runtime
+// ---------------------------------------------------------------------
+void auth_splash_event(lv_event_t * e) {
+    if (deviceAuthorized) {
+        _ui_screen_change(&ui_scrMain, LV_SCR_LOAD_ANIM_FADE_ON, 0, 0, &ui_scrMain_screen_init);
+    }
+}
 
 // ---------------------------------------------------------------------
 // void Task_Refresh_Screen(void *parameter)
@@ -143,11 +158,40 @@ void setup()
 
   Print_Debug("Initializing Default Value...");
 
-  char firmwareBuf[32];
-  snprintf(firmwareBuf, sizeof(firmwareBuf), "Version %d.%d.%d",
-           APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH);
-  lv_label_set_text(ui_lblVersion, firmwareBuf);
-  lv_label_set_text(ui_lblSplashStatus, "TAP ANYWHERE TO BEGIN");
+  // Read chip serial from eFuse MAC
+  uint64_t chipId = ESP.getEfuseMac();
+  snprintf(deviceSerial, sizeof(deviceSerial), "%012llX", chipId);
+  Print_Debug("Device SN: %s", deviceSerial);
+
+  // Show version + serial on splash
+  char splashInfo[64];
+  snprintf(splashInfo, sizeof(splashInfo), "v%d.%d.%d  SN:%s",
+           APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, deviceSerial);
+  lv_label_set_text(ui_lblVersion, splashInfo);
+
+  // Authorization check (empty list = all devices allowed)
+  if (AUTHORIZED_COUNT > 0) {
+    deviceAuthorized = false;
+    for (int i = 0; i < AUTHORIZED_COUNT; i++) {
+      if (strcmp(deviceSerial, AUTHORIZED_SERIALS[i]) == 0) {
+        deviceAuthorized = true;
+        break;
+      }
+    }
+  }
+
+  // Replace splash click handler with auth-aware version
+  lv_obj_remove_event_cb(ui_scrSplash, ui_event_scrSplash);
+  lv_obj_add_event_cb(ui_scrSplash, auth_splash_event, LV_EVENT_CLICKED, NULL);
+
+  if (deviceAuthorized) {
+    lv_label_set_text(ui_lblSplashStatus, "TAP ANYWHERE TO BEGIN");
+  } else {
+    lv_label_set_text(ui_lblSplashStatus, "UNAUTHORIZED DEVICE");
+    lv_label_set_text(ui_lblSplash, "Contact admin with SN above");
+    lv_obj_set_style_text_color(ui_lblSplashStatus, lv_color_hex(0xFF4444),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  }
 
   Print_Debug("Initializing CC1101...");
 

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WaveSentinel — Web Flasher</title>
-  <meta name="description" content="Flash WaveSentinel firmware to your WT32-SC01-PLUS ESP32-S3 directly from the browser.">
+  <title>WaveSentinel — Sub-GHz, WiFi & BLE Testing Tool</title>
+  <meta name="description" content="WaveSentinel: An open-source multi-band RF testing tool built on ESP32-S3. Sub-GHz capture/playback, WiFi pentesting, BLE analysis, and more — all from a 3.5-inch touchscreen.">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -28,9 +28,9 @@
       color:var(--text);
       min-height:100vh;
       overflow-x:hidden;
+      line-height:1.6;
     }
 
-    /* Animated gradient background */
     body::before{
       content:'';
       position:fixed;
@@ -43,26 +43,26 @@
     }
 
     .container{
-      max-width:720px;
+      max-width:800px;
       margin:0 auto;
       padding:2rem 1.5rem 4rem;
     }
 
-    /* Header */
+    /* Header / Hero */
     .header{
       text-align:center;
-      margin-bottom:2.5rem;
+      margin-bottom:2rem;
     }
 
     .logo{
-      width:180px;
+      width:200px;
       height:auto;
       margin-bottom:1.2rem;
-      filter:drop-shadow(0 0 20px rgba(200,167,78,0.3));
+      filter:drop-shadow(0 0 24px rgba(200,167,78,0.35));
     }
 
     h1{
-      font-size:2rem;
+      font-size:2.2rem;
       font-weight:700;
       background:linear-gradient(135deg, var(--gold-light), var(--gold), var(--gold-dark));
       -webkit-background-clip:text;
@@ -77,20 +77,29 @@
       font-size:0.95rem;
       letter-spacing:0.1em;
       text-transform:uppercase;
+      margin-bottom:1.2rem;
     }
 
-    /* Flash Card */
-    .flash-card{
+    .hero-description{
+      color:var(--text);
+      font-size:0.95rem;
+      max-width:600px;
+      margin:0 auto;
+      line-height:1.7;
+    }
+
+    /* Shared card style */
+    .card{
       background:var(--surface);
       border:1px solid var(--border);
       border-radius:16px;
       padding:2rem;
-      margin-bottom:2rem;
+      margin-bottom:1.5rem;
       position:relative;
       overflow:hidden;
     }
 
-    .flash-card::before{
+    .card::before{
       content:'';
       position:absolute;
       top:0;left:0;right:0;
@@ -98,8 +107,8 @@
       background:linear-gradient(90deg, transparent, var(--gold), transparent);
     }
 
-    .flash-card h2{
-      font-size:1.2rem;
+    .card h2{
+      font-size:1.15rem;
       color:var(--gold-light);
       margin-bottom:1rem;
       display:flex;
@@ -107,21 +116,17 @@
       gap:0.5rem;
     }
 
-    .flash-card h2 .icon{font-size:1.4rem}
+    .card h2 .icon{font-size:1.3rem}
 
+    /* Flash Card */
     .flash-instructions{
       color:var(--text-dim);
       line-height:1.7;
       margin-bottom:1.5rem;
     }
 
-    .flash-instructions ol{
-      padding-left:1.2rem;
-    }
-
-    .flash-instructions li{
-      margin-bottom:0.4rem;
-    }
+    .flash-instructions ol{padding-left:1.2rem}
+    .flash-instructions li{margin-bottom:0.4rem}
 
     .flash-instructions code{
       background:#1a1a2e;
@@ -131,16 +136,13 @@
       color:var(--cyan);
     }
 
-    /* ESP Web Tools button styling */
     .install-wrapper{
       display:flex;
       justify-content:center;
       margin:1.5rem 0;
     }
 
-    esp-web-install-button{
-      display:inline-block;
-    }
+    esp-web-install-button{display:inline-block}
 
     esp-web-install-button button{
       font-size:1.1rem;
@@ -173,15 +175,80 @@
       font-size:0.9rem;
     }
 
-    /* Features Grid */
-    .features{
+    /* Section titles */
+    .section-title{
+      font-size:1.3rem;
+      font-weight:700;
+      background:linear-gradient(135deg, var(--gold-light), var(--gold));
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      background-clip:text;
+      margin-bottom:1rem;
+      padding-bottom:0.5rem;
+      border-bottom:1px solid var(--border);
+    }
+
+    /* Feature detail cards */
+    .feature-section{
+      margin-bottom:1.5rem;
+    }
+
+    .feature-section h3{
+      font-size:1rem;
+      color:var(--gold-light);
+      margin-bottom:0.6rem;
+      display:flex;
+      align-items:center;
+      gap:0.4rem;
+    }
+
+    .feature-section p{
+      color:var(--text-dim);
+      font-size:0.88rem;
+      margin-bottom:0.6rem;
+    }
+
+    .feature-list{
+      list-style:none;
+      padding:0;
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:0.3rem 1.5rem;
+    }
+
+    .feature-list li{
+      color:var(--text-dim);
+      font-size:0.84rem;
+      padding:0.2rem 0;
+      padding-left:1.2rem;
+      position:relative;
+    }
+
+    .feature-list li::before{
+      content:'';
+      position:absolute;
+      left:0;
+      top:0.55rem;
+      width:6px;
+      height:6px;
+      border-radius:50%;
+      background:var(--gold-dark);
+    }
+
+    .feature-list li strong{
+      color:var(--text);
+      font-weight:500;
+    }
+
+    /* Mini feature grid */
+    .features-mini{
       display:grid;
       grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
       gap:1rem;
-      margin-bottom:2rem;
+      margin-bottom:1.5rem;
     }
 
-    .feature{
+    .feature-mini{
       background:var(--surface);
       border:1px solid var(--border);
       border-radius:12px;
@@ -189,11 +256,9 @@
       transition:border-color 0.3s ease;
     }
 
-    .feature:hover{
-      border-color:var(--gold-dark);
-    }
+    .feature-mini:hover{border-color:var(--gold-dark)}
 
-    .feature h3{
+    .feature-mini h3{
       font-size:0.9rem;
       color:var(--gold-light);
       margin-bottom:0.5rem;
@@ -202,27 +267,13 @@
       gap:0.4rem;
     }
 
-    .feature p{
+    .feature-mini p{
       font-size:0.82rem;
       color:var(--text-dim);
       line-height:1.5;
     }
 
     /* Specs Table */
-    .specs{
-      background:var(--surface);
-      border:1px solid var(--border);
-      border-radius:16px;
-      padding:2rem;
-      margin-bottom:2rem;
-    }
-
-    .specs h2{
-      font-size:1.2rem;
-      color:var(--gold-light);
-      margin-bottom:1rem;
-    }
-
     .specs-grid{
       display:grid;
       grid-template-columns:1fr 1fr;
@@ -240,6 +291,70 @@
     .spec-item .label{color:var(--text-dim)}
     .spec-item .value{color:var(--text);font-weight:500}
 
+    /* Requirements list */
+    .req-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:0.8rem;
+    }
+
+    .req-item{
+      display:flex;
+      align-items:flex-start;
+      gap:0.6rem;
+      padding:0.6rem;
+      background:#0e0e16;
+      border-radius:8px;
+      border:1px solid #1a1a2e;
+    }
+
+    .req-item .req-icon{
+      font-size:1.2rem;
+      flex-shrink:0;
+      margin-top:0.1rem;
+    }
+
+    .req-item .req-text{font-size:0.85rem}
+    .req-item .req-text strong{color:var(--text);display:block;margin-bottom:0.15rem}
+    .req-item .req-text span{color:var(--text-dim);font-size:0.8rem}
+
+    /* Getting started steps */
+    .steps{
+      counter-reset:step-counter;
+      list-style:none;
+      padding:0;
+    }
+
+    .steps li{
+      counter-increment:step-counter;
+      display:flex;
+      align-items:flex-start;
+      gap:1rem;
+      padding:0.8rem 0;
+      border-bottom:1px solid #1a1a2e;
+      font-size:0.9rem;
+      color:var(--text-dim);
+    }
+
+    .steps li:last-child{border-bottom:none}
+
+    .steps li::before{
+      content:counter(step-counter);
+      flex-shrink:0;
+      width:28px;
+      height:28px;
+      border-radius:50%;
+      background:linear-gradient(135deg, var(--gold-dark), var(--gold));
+      color:#000;
+      font-weight:700;
+      font-size:0.85rem;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    .steps li strong{color:var(--text)}
+
     /* Footer */
     .footer{
       text-align:center;
@@ -253,44 +368,61 @@
       margin-bottom:0.3rem;
     }
 
-    .footer a{
-      color:var(--gold);
-      text-decoration:none;
+    .footer a{color:var(--gold);text-decoration:none}
+    .footer a:hover{text-decoration:underline}
+
+    .footer .tech-stack{
+      display:flex;
+      justify-content:center;
+      gap:0.8rem;
+      flex-wrap:wrap;
+      margin-top:0.5rem;
     }
 
-    .footer a:hover{text-decoration:underline}
+    .footer .tech-badge{
+      font-size:0.72rem;
+      padding:0.2rem 0.6rem;
+      border-radius:4px;
+      background:#1a1a2e;
+      color:var(--text-dim);
+      border:1px solid var(--border);
+    }
 
     /* Responsive */
     @media(max-width:600px){
       .container{padding:1.5rem 1rem 3rem}
       h1{font-size:1.6rem}
+      .logo{width:150px}
       .specs-grid{grid-template-columns:1fr}
-      .logo{width:140px}
+      .req-grid{grid-template-columns:1fr}
+      .feature-list{grid-template-columns:1fr}
     }
   </style>
 </head>
 <body>
   <div class="container">
 
-    <!-- Header -->
+    <!-- Hero -->
     <div class="header">
       <img src="WaveSentinel.png?v=2" alt="WaveSentinel" class="logo">
       <h1>WAVE SENTINEL</h1>
       <p class="tagline">Sub-GHz &middot; WiFi &middot; Bluetooth Testing Tool</p>
+      <p class="hero-description">
+        An all-in-one RF security research platform built on the ESP32-S3. Capture, analyze, and replay Sub-GHz signals, audit WiFi networks, and probe Bluetooth devices &mdash; all from a pocket-sized 3.5&quot; touchscreen with no external tools required.
+      </p>
     </div>
 
-    <!-- Flash Card -->
-    <div class="flash-card">
-      <h2><span class="icon">&#9889;</span> Web Installer</h2>
+    <!-- Web Installer -->
+    <div class="card">
+      <h2><span class="icon">&#9889;</span> Install Firmware</h2>
       <div class="flash-instructions">
         <ol>
-          <li>Connect your <strong>WT32-SC01-PLUS</strong> to USB</li>
+          <li>Connect your <strong>WT32-SC01-PLUS</strong> via USB-C</li>
           <li>Click <strong>Install WaveSentinel</strong> below</li>
           <li>Select the serial port when prompted</li>
           <li>Wait for the flash to complete (~60 seconds)</li>
         </ol>
       </div>
-
       <div class="install-wrapper">
         <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
         <esp-web-install-button manifest="./manifest.json">
@@ -303,45 +435,107 @@
       </div>
     </div>
 
-    <!-- Features -->
-    <div class="features">
-      <div class="feature">
-        <h3>&#128225; Sub-GHz RF</h3>
-        <p>CC1101-based capture, playback, scanning, and protocol analysis. Flipper .sub file compatible.</p>
-      </div>
-      <div class="feature">
-        <h3>&#128246; WiFi Tools</h3>
-        <p>Network scanner, beacon flood, deauth testing, promiscuous sniffer, and STA join.</p>
-      </div>
-      <div class="feature">
-        <h3>&#128268; BLE Tools</h3>
-        <p>BLE advertisement spam (Apple, Android, Windows) and BLE device scanner.</p>
-      </div>
-      <div class="feature">
-        <h3>&#127911; RF Protocols</h3>
-        <p>Princeton, KeeLoq, CAME, Nice FLO, GateTX, Linear, and more. Real-time analyzer.</p>
-      </div>
-      <div class="feature">
-        <h3>&#128444; Touch Display</h3>
-        <p>3.5" 480x320 capacitive touchscreen with LVGL UI. No external tools needed.</p>
-      </div>
-      <div class="feature">
-        <h3>&#128190; SD Card</h3>
-        <p>Save and load Flipper .sub captures, presets, and configurations to microSD.</p>
+    <!-- Sub-GHz RF Features -->
+    <div class="card">
+      <h2><span class="icon">&#128225;</span> Sub-GHz RF (CC1101)</h2>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">Full-spectrum Sub-GHz radio powered by the CC1101 transceiver. Capture, replay, scan, and decode RF signals across the 300&ndash;928 MHz band.</p>
+      <ul class="feature-list">
+        <li><strong>Capture &amp; Playback</strong> &mdash; Record raw RF signals and retransmit on demand</li>
+        <li><strong>Frequency Scanner</strong> &mdash; Sweep and detect active frequencies in real time</li>
+        <li><strong>Protocol Analyzer</strong> &mdash; Auto-identify Princeton, KeeLoq, CAME, Nice FLO, GateTX, Linear &amp; more</li>
+        <li><strong>Signal Generator</strong> &mdash; Transmit on any configurable frequency and modulation</li>
+        <li><strong>Flipper .sub Files</strong> &mdash; Load, save, and play Flipper Zero sub-files from SD card</li>
+        <li><strong>Tesla Charge Port</strong> &mdash; US and EU charge port signal emulation</li>
+        <li><strong>Full CC1101 Config</strong> &mdash; Frequency, modulation (ASK/FSK/GFSK/MSK), bandwidth, deviation, data rate, TX power, sync mode, packet format</li>
+        <li><strong>Save to SD</strong> &mdash; Export captures as Flipper-compatible .sub files</li>
+      </ul>
+    </div>
+
+    <!-- WiFi Features -->
+    <div class="card">
+      <h2><span class="icon">&#128246;</span> WiFi Tools</h2>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">802.11 b/g/n network auditing suite using the ESP32-S3's native WiFi radio with raw frame injection and promiscuous capture.</p>
+      <ul class="feature-list">
+        <li><strong>Network Scanner</strong> &mdash; Discover and inspect nearby access points with signal strength</li>
+        <li><strong>WiFi Join</strong> &mdash; Connect to networks with on-screen keyboard, credentials saved to NVS</li>
+        <li><strong>Beacon Flood</strong> &mdash; Broadcast fake SSIDs (random, rickroll, funny names)</li>
+        <li><strong>Deauth Testing</strong> &mdash; 802.11 deauthentication frame transmission</li>
+        <li><strong>Packet Sniffer</strong> &mdash; Promiscuous mode capture with live packet stats and probe request logging</li>
+        <li><strong>OTA Updates</strong> &mdash; Over-the-air firmware updates via built-in web server</li>
+      </ul>
+    </div>
+
+    <!-- BLE Features -->
+    <div class="card">
+      <h2><span class="icon">&#128268;</span> Bluetooth Low Energy</h2>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">BLE 5.0 toolset powered by the NimBLE stack for advertisement analysis and broadcast testing.</p>
+      <ul class="feature-list">
+        <li><strong>BLE Spam</strong> &mdash; Advertisement flooding for Apple, Android, Samsung, Windows, and Google devices</li>
+        <li><strong>BLE Scanner</strong> &mdash; Discover nearby BLE devices with name, MAC address, and RSSI</li>
+        <li><strong>Configurable Duration</strong> &mdash; 5s, 10s, or 30s scan windows</li>
+        <li><strong>NimBLE Stack</strong> &mdash; Low memory footprint (~15KB vs 70KB Bluedroid)</li>
+      </ul>
+    </div>
+
+    <!-- Hardware & UI Features -->
+    <div class="card">
+      <h2><span class="icon">&#128444;</span> Hardware &amp; Interface</h2>
+      <ul class="feature-list">
+        <li><strong>3.5" Touchscreen</strong> &mdash; 480x320 capacitive IPS display, full touch-driven LVGL UI</li>
+        <li><strong>Persistent Status Bar</strong> &mdash; WiFi and battery icons visible across all screens</li>
+        <li><strong>microSD Card</strong> &mdash; Save/load RF captures, Flipper .sub files, and presets</li>
+        <li><strong>I2S Audio Output</strong> &mdash; DAC sound output via dedicated I2S bus</li>
+        <li><strong>TouchTunes Remote</strong> &mdash; Wireless jukebox control built in</li>
+        <li><strong>Dual-Core Architecture</strong> &mdash; Core 0 handles display, Core 1 handles RF/WiFi/BLE operations</li>
+      </ul>
+    </div>
+
+    <!-- What You Need -->
+    <div class="card">
+      <h2><span class="icon">&#128722;</span> What You Need</h2>
+      <div class="req-grid">
+        <div class="req-item">
+          <span class="req-icon">&#128187;</span>
+          <div class="req-text">
+            <strong>WT32-SC01-PLUS</strong>
+            <span>ESP32-S3 dev board with 3.5" touchscreen (ST7796 + FT5x06)</span>
+          </div>
+        </div>
+        <div class="req-item">
+          <span class="req-icon">&#128225;</span>
+          <div class="req-text">
+            <strong>CC1101 Module</strong>
+            <span>Sub-GHz transceiver (300&ndash;928 MHz). Connect via SPI: MISO=11, MOSI=10, SCLK=14, CS=12, GDO0=13</span>
+          </div>
+        </div>
+        <div class="req-item">
+          <span class="req-icon">&#128190;</span>
+          <div class="req-text">
+            <strong>microSD Card</strong>
+            <span>For storing captures, presets, and Flipper .sub files. Any size FAT32 formatted</span>
+          </div>
+        </div>
+        <div class="req-item">
+          <span class="req-icon">&#128268;</span>
+          <div class="req-text">
+            <strong>USB-C Cable</strong>
+            <span>For flashing firmware and power. Data-capable cable required</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Specs -->
-    <div class="specs">
-      <h2>Hardware Specs</h2>
+    <!-- Hardware Specs -->
+    <div class="card">
+      <h2><span class="icon">&#9881;</span> Hardware Specs</h2>
       <div class="specs-grid">
         <div class="spec-item">
           <span class="label">MCU</span>
-          <span class="value">ESP32-S3 @ 240 MHz</span>
+          <span class="value">ESP32-S3 @ 240 MHz (Dual-Core)</span>
         </div>
         <div class="spec-item">
           <span class="label">Display</span>
-          <span class="value">3.5" ST7796 IPS</span>
+          <span class="value">3.5" ST7796 IPS (480x320)</span>
         </div>
         <div class="spec-item">
           <span class="label">Touch</span>
@@ -349,7 +543,7 @@
         </div>
         <div class="spec-item">
           <span class="label">RF Module</span>
-          <span class="value">CC1101 (300-928 MHz)</span>
+          <span class="value">CC1101 (300&ndash;928 MHz)</span>
         </div>
         <div class="spec-item">
           <span class="label">Memory</span>
@@ -357,23 +551,92 @@
         </div>
         <div class="spec-item">
           <span class="label">Storage</span>
-          <span class="value">microSD (SPI)</span>
+          <span class="value">microSD via dedicated SPI bus</span>
         </div>
         <div class="spec-item">
           <span class="label">Audio</span>
-          <span class="value">I2S DAC Output</span>
+          <span class="value">I2S DAC (GPIO 36/35/37)</span>
         </div>
         <div class="spec-item">
-          <span class="label">Connectivity</span>
-          <span class="value">WiFi + BLE 5.0</span>
+          <span class="label">WiFi</span>
+          <span class="value">802.11 b/g/n</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Bluetooth</span>
+          <span class="value">BLE 5.0 (NimBLE)</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Power</span>
+          <span class="value">USB-C + LiPo battery</span>
         </div>
       </div>
     </div>
 
+    <!-- Pin Mapping -->
+    <div class="card">
+      <h2><span class="icon">&#128204;</span> Pin Mapping</h2>
+      <div class="specs-grid">
+        <div class="spec-item">
+          <span class="label">CC1101 SPI</span>
+          <span class="value">MISO=11 MOSI=10 SCLK=14 CS=12</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">CC1101 GDO0</span>
+          <span class="value">GPIO 13</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">SD Card SPI</span>
+          <span class="value">MISO=38 MOSI=40 SCLK=39 CS=41</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">I2S Audio</span>
+          <span class="value">BCLK=36 LRC=35 DOUT=37</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Display</span>
+          <span class="value">8-bit parallel, RST=4, BL=45</span>
+        </div>
+        <div class="spec-item">
+          <span class="label">Touch I2C</span>
+          <span class="value">SDA=6 SCL=5 INT=7 (@ 0x38)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Getting Started -->
+    <div class="card">
+      <h2><span class="icon">&#128640;</span> Getting Started</h2>
+      <ol class="steps">
+        <li><strong>Get the hardware</strong> &mdash; WT32-SC01-PLUS board, CC1101 module, microSD card, and a USB-C data cable</li>
+        <li><strong>Wire the CC1101</strong> &mdash; Connect MISO(11), MOSI(10), SCLK(14), CS(12), GDO0(13), VCC(3.3V), and GND</li>
+        <li><strong>Flash the firmware</strong> &mdash; Use the Install button above (Chrome/Edge), or build from source with <code style="background:#1a1a2e;padding:0.15rem 0.4rem;border-radius:4px;font-size:0.85rem;color:var(--cyan);">pio run --target upload</code></li>
+        <li><strong>Insert SD card</strong> &mdash; FAT32 formatted, for saving captures and loading Flipper .sub files</li>
+        <li><strong>Power on &amp; tap</strong> &mdash; The splash screen shows your device serial and firmware version. Tap to enter the main menu</li>
+      </ol>
+    </div>
+
+    <!-- Build from Source -->
+    <div class="card">
+      <h2><span class="icon">&#128736;</span> Build from Source</h2>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">Requires <a href="https://platformio.org/" style="color:var(--cyan);text-decoration:none;">PlatformIO</a> (CLI or VS Code extension).</p>
+      <pre style="background:#0e0e16;border:1px solid #1a1a2e;border-radius:8px;padding:1rem;overflow-x:auto;font-size:0.82rem;color:var(--cyan);line-height:1.8;"><code>git clone https://github.com/OzInFl/WaveSentinel-refactored2.git
+cd WaveSentinel-refactored2
+pio run                      # Build
+pio run --target upload      # Flash via USB</code></pre>
+    </div>
+
     <!-- Footer -->
     <div class="footer">
-      <p>Built with ESP-IDF + Arduino + LVGL + LovyanGFX</p>
       <p><a href="https://github.com/OzInFl/WaveSentinel-refactored2">GitHub Repository</a></p>
+      <p>For educational and authorized security research purposes only.</p>
+      <div class="tech-stack">
+        <span class="tech-badge">ESP-IDF</span>
+        <span class="tech-badge">Arduino</span>
+        <span class="tech-badge">LVGL 8.3</span>
+        <span class="tech-badge">LovyanGFX</span>
+        <span class="tech-badge">NimBLE</span>
+        <span class="tech-badge">PlatformIO</span>
+      </div>
     </div>
 
   </div>
