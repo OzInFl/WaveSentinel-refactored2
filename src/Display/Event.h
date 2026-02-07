@@ -42,6 +42,7 @@ enum WaveSentinelState
   STATE_DEAUTH_RUN,      // Sending deauth frames
   STATE_BLE_SCAN_INIT,   // Deferred BLE init for scanner
   STATE_BLE_SCAN_RUN,    // BLE scanning in progress
+  STATE_WIFI_CONNECTING, // WiFi STA connection in progress
 };
 
 // Current State
