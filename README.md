@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/WaveSentinel.png" alt="WaveSentinel" width="400">
+  <img src="docs/WaveSentinelSplash.png" alt="WaveSentinel" width="300">
 </p>
 
 <h1 align="center">WaveSentinel</h1>
