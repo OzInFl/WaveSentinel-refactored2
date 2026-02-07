@@ -25,6 +25,7 @@
 #include "WiFi/WiFiMarauder.h"
 #include "SD/SDCard.h"
 #include "Display/TouchTunesScreen.h"
+#include "Display/StatusBar.h"
 
 #include "Arduino.h"
 #include "Audio.h"
@@ -54,6 +55,14 @@ Audio audio;
 
 // Preferences Library
 Preferences prefs;
+
+// WiFi Join — keyboard overlay state
+static lv_obj_t *wifiJoinPanel = NULL;
+static lv_obj_t *wifiJoinTextarea = NULL;
+static lv_obj_t *wifiJoinKeyboard = NULL;
+static char wifiJoinSSID[33] = {0};
+unsigned long wifiConnectStartTime = 0;
+const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 
 
 
@@ -159,6 +168,9 @@ void setup()
   // Wire the TouchTunes button (not wired in SquareLine)
   lv_obj_add_event_cb(ui_btnMainTTunes, fcnTouchTunes, LV_EVENT_CLICKED, NULL);
 
+  // Persistent status bar (WiFi + battery icons) on lv_layer_top()
+  statusbar_init();
+
   xTaskCreatePinnedToCore(Task_Refresh_Screen, "Task_Refresh_Screen", 20000, NULL, 1, NULL, 0);
 
   Print_Debug("Setup done.");
@@ -172,6 +184,12 @@ void setup()
 // ---------------------------------------------------------------------
 void loop()
 {
+  // Update persistent status bar icons (WiFi state, battery placeholder)
+  if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    statusbar_update();
+    xSemaphoreGive(lvgl_mutex);
+  }
+
   // Handle OTA updates when enabled
   if (OTAInProgress == 1)
   {
@@ -247,6 +265,35 @@ void loop()
     }
 
     currentState = STATE_IDLE;
+  }
+  else if (currentState == STATE_WIFI_CONNECTING)
+  {
+    if (wifiGotIP) {
+      // Connection successful
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        char statusBuf[80];
+        snprintf(statusBuf, sizeof(statusBuf), "Connected!\nIP: %s\nSSID: %s",
+                 wifiLocalIP, wifiJoinSSID);
+        lv_label_set_text(ui_lblWifiScanNetsFound, statusBuf);
+        lv_textarea_set_text(ui_txtWifiScanNetsFound, statusBuf);
+        xSemaphoreGive(lvgl_mutex);
+      }
+      statusbar_update_wifi(true);
+      currentState = STATE_IDLE;
+    }
+    else if (millis() - wifiConnectStartTime > WIFI_CONNECT_TIMEOUT_MS) {
+      // Timeout
+      WiFi.disconnect(true);
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        lv_label_set_text(ui_lblWifiScanNetsFound, "Connection timed out");
+        xSemaphoreGive(lvgl_mutex);
+      }
+      statusbar_update_wifi(false);
+      currentState = STATE_IDLE;
+    }
+    else {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
   }
   else if (currentState == STATE_ANALYZER)
   {
@@ -1824,11 +1871,151 @@ void event_refresh_wifi(lv_event_t *e)
 }
 
 // ---------------------------------------------------------------------
+// WiFi Join keyboard callback — handles Enter (READY) and Cancel
+// Runs on Core 0 (LVGL event context) — already mutex-protected
+// ---------------------------------------------------------------------
+static void wifi_join_keyboard_cb(lv_event_t *e)
+{
+  lv_event_code_t code = lv_event_get_code(e);
+
+  if (code == LV_EVENT_READY) {
+    // User pressed Enter — extract password and connect
+    const char *pwd = lv_textarea_get_text(wifiJoinTextarea);
+
+    // Get selected SSID from dropdown
+    lv_dropdown_get_selected_str(ui_ddlWifiSSID, wifiJoinSSID, sizeof(wifiJoinSSID));
+
+    // Disconnect any prior connection, ensure STA mode
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_STA);
+    WiFi.onEvent(WiFiEvent);
+
+    // Reset connection flags
+    wifiConnected = false;
+    wifiGotIP = false;
+
+    // Start connection
+    WiFi.begin(wifiJoinSSID, pwd);
+    wifiConnectStartTime = millis();
+
+    // Save credentials to NVS
+    prefs.begin("wifi", false);
+    prefs.putString("ssid", wifiJoinSSID);
+    prefs.putString("pass", pwd);
+    prefs.end();
+
+    // Update UI
+    char statusBuf[64];
+    snprintf(statusBuf, sizeof(statusBuf), "Connecting to %s...", wifiJoinSSID);
+    lv_label_set_text(ui_lblWifiScanNetsFound, statusBuf);
+
+    // Delete keyboard overlay
+    if (wifiJoinPanel) {
+      lv_obj_del(wifiJoinPanel);
+      wifiJoinPanel = NULL;
+      wifiJoinTextarea = NULL;
+      wifiJoinKeyboard = NULL;
+    }
+
+    currentState = STATE_WIFI_CONNECTING;
+  }
+  else if (code == LV_EVENT_CANCEL) {
+    // User pressed Cancel/X — dismiss overlay
+    if (wifiJoinPanel) {
+      lv_obj_del(wifiJoinPanel);
+      wifiJoinPanel = NULL;
+      wifiJoinTextarea = NULL;
+      wifiJoinKeyboard = NULL;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
 // void event_join_wifi(lv_event_t *e)
+// Show password keyboard overlay, then connect to selected WiFi network
 // ---------------------------------------------------------------------
 void event_join_wifi(lv_event_t *e)
 {
   Print_Debug("event_join_wifi");
+
+  if (currentState != STATE_IDLE) return;
+
+  // Check that a network is selected in the dropdown
+  char ssidCheck[33];
+  lv_dropdown_get_selected_str(ui_ddlWifiSSID, ssidCheck, sizeof(ssidCheck));
+  if (strlen(ssidCheck) == 0) {
+    lv_label_set_text(ui_lblWifiScanNetsFound, "Scan first, then select a network");
+    return;
+  }
+
+  // Destroy any leftover overlay
+  if (wifiJoinPanel) {
+    lv_obj_del(wifiJoinPanel);
+    wifiJoinPanel = NULL;
+  }
+
+  // Create fullscreen overlay panel on the WiFi screen
+  wifiJoinPanel = lv_obj_create(ui_scrWifiApps);
+  lv_obj_set_size(wifiJoinPanel, 320, 480);
+  lv_obj_set_align(wifiJoinPanel, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(wifiJoinPanel, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(wifiJoinPanel, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(wifiJoinPanel, 255, LV_PART_MAIN);
+  lv_obj_set_style_bg_img_src(wifiJoinPanel, &ui_img_blankpgbkgnd_png, LV_PART_MAIN);
+  lv_obj_set_style_border_width(wifiJoinPanel, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(wifiJoinPanel, 0, LV_PART_MAIN);
+
+  // Title
+  lv_obj_t *titleLbl = lv_label_create(wifiJoinPanel);
+  lv_obj_set_align(titleLbl, LV_ALIGN_TOP_MID);
+  lv_obj_set_y(titleLbl, 15);
+  lv_label_set_text(titleLbl, "Enter WiFi Password");
+  lv_obj_set_style_text_color(titleLbl, lv_color_hex(0xFF9100), LV_PART_MAIN);
+  lv_obj_set_style_text_font(titleLbl, &ui_font_Verdana16, LV_PART_MAIN);
+
+  // SSID label
+  lv_obj_t *ssidLbl = lv_label_create(wifiJoinPanel);
+  lv_obj_set_align(ssidLbl, LV_ALIGN_TOP_MID);
+  lv_obj_set_y(ssidLbl, 45);
+  char instrBuf[64];
+  snprintf(instrBuf, sizeof(instrBuf), "Network: %s", ssidCheck);
+  lv_label_set_text(ssidLbl, instrBuf);
+  lv_obj_set_style_text_color(ssidLbl, lv_color_hex(0xFCFCFC), LV_PART_MAIN);
+  lv_obj_set_style_text_font(ssidLbl, &ui_font_Verdana14, LV_PART_MAIN);
+
+  // Password textarea
+  wifiJoinTextarea = lv_textarea_create(wifiJoinPanel);
+  lv_obj_set_width(wifiJoinTextarea, 280);
+  lv_obj_set_height(wifiJoinTextarea, LV_SIZE_CONTENT);
+  lv_obj_set_align(wifiJoinTextarea, LV_ALIGN_TOP_MID);
+  lv_obj_set_y(wifiJoinTextarea, 75);
+  lv_textarea_set_max_length(wifiJoinTextarea, 63);
+  lv_textarea_set_one_line(wifiJoinTextarea, true);
+  lv_textarea_set_password_mode(wifiJoinTextarea, true);
+  lv_textarea_set_placeholder_text(wifiJoinTextarea, "Password...");
+  lv_obj_set_style_text_color(wifiJoinTextarea, lv_color_hex(0x00FF0C), LV_PART_MAIN);
+  lv_obj_set_style_text_font(wifiJoinTextarea, &ui_font_Verdana14, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(wifiJoinTextarea, lv_color_hex(0x1A1A2E), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(wifiJoinTextarea, 255, LV_PART_MAIN);
+  lv_obj_set_style_border_color(wifiJoinTextarea, lv_color_hex(0x444466), LV_PART_MAIN);
+  lv_obj_set_style_border_opa(wifiJoinTextarea, 255, LV_PART_MAIN);
+  lv_obj_set_style_border_width(wifiJoinTextarea, 1, LV_PART_MAIN);
+
+  // Full QWERTY keyboard (lv_keyboard, not btnmatrix — need alphanumeric)
+  wifiJoinKeyboard = lv_keyboard_create(wifiJoinPanel);
+  lv_obj_set_width(wifiJoinKeyboard, 320);
+  lv_obj_set_height(wifiJoinKeyboard, 240);
+  lv_obj_set_align(wifiJoinKeyboard, LV_ALIGN_BOTTOM_MID);
+  lv_obj_set_y(wifiJoinKeyboard, 0);
+  lv_obj_set_style_bg_color(wifiJoinKeyboard, lv_color_hex(0x1A1A2E), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(wifiJoinKeyboard, 255, LV_PART_MAIN);
+
+  // Connect keyboard to textarea
+  lv_keyboard_set_textarea(wifiJoinKeyboard, wifiJoinTextarea);
+
+  // Register Enter and Cancel events
+  lv_obj_add_event_cb(wifiJoinKeyboard, wifi_join_keyboard_cb, LV_EVENT_READY, NULL);
+  lv_obj_add_event_cb(wifiJoinKeyboard, wifi_join_keyboard_cb, LV_EVENT_CANCEL, NULL);
 }
 
 // ---------------------------------------------------------------------
@@ -1837,6 +2024,14 @@ void event_join_wifi(lv_event_t *e)
 void event_exit_wifi_screen(lv_event_t *e)
 {
   Print_Debug("event_exit_wifi_screen");
+
+  // Clean up keyboard overlay if still open
+  if (wifiJoinPanel) {
+    lv_obj_del(wifiJoinPanel);
+    wifiJoinPanel = NULL;
+    wifiJoinTextarea = NULL;
+    wifiJoinKeyboard = NULL;
+  }
 
   // Stop any active Marauder feature
   if (currentState == STATE_WIFI_SNIFF) {
@@ -1848,12 +2043,20 @@ void event_exit_wifi_screen(lv_event_t *e)
   } else if (currentState == STATE_DEAUTH_RUN) {
     WiFiMarauder::deinitActive();
     currentState = STATE_IDLE;
+  } else if (currentState == STATE_WIFI_CONNECTING) {
+    // Abort in-progress connection attempt
+    WiFi.disconnect(true);
+    currentState = STATE_IDLE;
   }
 
   // delete old config
   WiFi.scanDelete();
   WiFi.removeEvent(WiFiEvent);
-  WiFi.disconnect(true);
+
+  // Only disconnect WiFi if NOT already connected (preserve active connection)
+  if (!wifiGotIP) {
+    WiFi.disconnect(true);
+  }
 
   lv_scr_load(ui_scrMain);
 }
