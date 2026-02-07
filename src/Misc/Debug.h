@@ -12,11 +12,9 @@
     {                                                    \
       printf("[DEBUG] - ");                              \
       printf(args);                                      \
-      printf(" | Core: ");                               \
-      printf(String(xPortGetCoreID()).c_str());          \
-      printf(" | Current RAM: ");                        \
-      printf(String(ESP.getFreeHeap() / 1024).c_str());  \
-      printf("KB\n");                                    \
+      printf(" | Core: %d", xPortGetCoreID());           \
+      printf(" | Current RAM: %uKB\n",                   \
+             (unsigned)(ESP.getFreeHeap() / 1024));                                    \
     }                                                    \
   }
 

@@ -1,19 +1,34 @@
-// WAVE SENTINEL - SUBGHZ - BT5 - WiFi Testing Tool
+// ---------------------------------------------------------------
+// WAVE SENTINEL — SubGHz / BLE / WiFi multi-tool
+//
+// Architecture:
+//   Core 0: LVGL display refresh (Task_Refresh_Screen) — all
+//           touch callbacks and event handlers run here.
+//   Core 1: Main loop() state machine — RF capture/playback,
+//           scanning, BLE spam, WiFi scan, etc.
+//
+// LVGL is NOT thread-safe. Any LVGL call from Core 1's loop()
+// MUST be wrapped with xSemaphoreTake/Give(lvgl_mutex).
+// Event handlers on Core 0 are already inside the mutex.
+//
+// Hardware: WT32-SC01-PLUS (ESP32-S3 + ST7796 LCD + FT5x06 touch)
+//           + CC1101 RF module on default SPI (FSPI)
+//           + SD card on HSPI (separate SPI bus)
+//           + I2S audio output
+// ---------------------------------------------------------------
 
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// INCLUDE
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #include "Misc/Config.h"
 #include "Display/Display.h"
 #include "SubGhz/SubGhz.h"
 #include "WiFi/WiFix.h"
 #include "BLE/BLE.h"
+#include "WiFi/WiFiMarauder.h"
 #include "SD/SDCard.h"
-
+#include "Display/TouchTunesScreen.h"
 
 #include "Arduino.h"
 #include "Audio.h"
+#include "esp_bt.h"
 #include <Preferences.h>
 
 
@@ -26,6 +41,13 @@
 
 // SubGhz Class
 SubGhz SUBGHZ;
+
+// WiFi scan timeout tracking
+unsigned long scanStartTime = 0;
+const unsigned long WIFI_SCAN_TIMEOUT_MS = 15000; // 15 seconds
+
+// BLE scan duration (set by event handler, used by state machine)
+int bleScanDuration = 5;
 
 // Audio I2S Definitions
 Audio audio;
@@ -48,8 +70,11 @@ void Task_Refresh_Screen(void *parameter)
 {
   while (true)
   {
-    lv_timer_handler();
-    vTaskDelay(1);
+    if (xSemaphoreTake(lvgl_mutex, portMAX_DELAY) == pdTRUE) {
+      lv_timer_handler();
+      xSemaphoreGive(lvgl_mutex);
+    }
+    vTaskDelay(pdMS_TO_TICKS(5));
   }
 
   vTaskDelete(NULL);
@@ -60,6 +85,10 @@ void Task_Refresh_Screen(void *parameter)
 // ---------------------------------------------------------------------
 void setup()
 {
+  // Release Classic BT memory early — frees ~30KB internal SRAM before
+  // any heap allocations fragment it. Needed for BLE controller init later.
+  esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+
   Print_Debug("Initializing Stuff...");
 
   
@@ -91,9 +120,9 @@ void setup()
     so we can use it to calculate the progress of flashing */
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
                         {
-    String UpdProgress="Progress: ";
-    UpdProgress+=String((progress / (total / 100))).c_str();
-    lv_label_set_text(ui_lblSettingsStatus,UpdProgress.c_str());
+    char updBuf[32];
+    snprintf(updBuf, sizeof(updBuf), "Progress: %u", progress / (total / 100));
+    lv_label_set_text(ui_lblSettingsStatus, updBuf);
     lv_bar_set_value(ui_barProgress,progress / (total / 100),LV_ANIM_ON); });
 
   // Start The Serial Debug Port
@@ -105,14 +134,10 @@ void setup()
 
   Print_Debug("Initializing Default Value...");
 
-  String FirmwareVer = "Version ";
-  FirmwareVer += APP_VERSION_MAJOR;
-  FirmwareVer += ".";
-  FirmwareVer += APP_VERSION_MINOR;
-  FirmwareVer += ".";
-  FirmwareVer += APP_VERSION_PATCH;
-
-  lv_label_set_text(ui_lblVersion, String(FirmwareVer).c_str());
+  char firmwareBuf[32];
+  snprintf(firmwareBuf, sizeof(firmwareBuf), "Version %d.%d.%d",
+           APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH);
+  lv_label_set_text(ui_lblVersion, firmwareBuf);
   lv_label_set_text(ui_lblSplashStatus, "TAP ANYWHERE TO BEGIN");
 
   Print_Debug("Initializing CC1101...");
@@ -128,6 +153,12 @@ void setup()
     Print_Debug("CC1101 not initialized.");
   }
 
+  // Build dynamic TouchTunes remote screen (no SquareLine license needed)
+  tt_screen_init();
+
+  // Wire the TouchTunes button (not wired in SquareLine)
+  lv_obj_add_event_cb(ui_btnMainTTunes, fcnTouchTunes, LV_EVENT_CLICKED, NULL);
+
   xTaskCreatePinnedToCore(Task_Refresh_Screen, "Task_Refresh_Screen", 20000, NULL, 1, NULL, 0);
 
   Print_Debug("Setup done.");
@@ -135,14 +166,20 @@ void setup()
 
 // ---------------------------------------------------------------------
 // void loop()
+// Runs on Core 1. All LVGL calls MUST be wrapped with lvgl_mutex
+// because the LVGL refresh task runs on Core 0. Without the mutex,
+// concurrent LVGL access causes heap corruption and random crashes.
 // ---------------------------------------------------------------------
 void loop()
 {
+  // Handle OTA updates when enabled
   if (OTAInProgress == 1)
   {
     ArduinoOTA.handle();
     server.handleClient();
   }
+
+  // --- State machine: each state handles its RF/BLE/WiFi work ---
 
   if (currentState == STATE_AUDIO_TEST)
   {
@@ -150,39 +187,64 @@ void loop()
   }
   else if (currentState == STATE_WIFI_SCAN)
   {
-
-    while (!scanFinished)
+    // Non-blocking: check each loop iteration instead of busy-waiting
+    if (!scanFinished)
     {
-      delay(1);
+      // Timeout after 15s to prevent permanent freeze
+      if (millis() - scanStartTime > WIFI_SCAN_TIMEOUT_MS)
+      {
+        WiFi.scanDelete();
+        if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+          lv_label_set_text(ui_lblWifiScanNetsFound, "Scan timed out — try again");
+          xSemaphoreGive(lvgl_mutex);
+        }
+        currentState = STATE_IDLE;
+        return;
+      }
+      vTaskDelay(1);
+      return;
     }
 
     int16_t wifiNetwork = WiFi.scanComplete();
 
-    lv_label_set_text(ui_lblWifiScanNetsFound, String(String("WiFi Networks Found: ") + String(wifiNetwork)).c_str());
+    // Protect all LVGL calls with mutex (Core 0 runs LVGL refresh)
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      char buf[32];
+      snprintf(buf, sizeof(buf), "WiFi Networks Found: %d", wifiNetwork > 0 ? wifiNetwork : 0);
+      lv_label_set_text(ui_lblWifiScanNetsFound, buf);
 
-    // Update dropdown with the scanned networks
-    for (int i = 0; i < wifiNetwork; i++)
-    {
-      // Update the dropdown
-      lv_dropdown_add_option(ui_ddlWifiSSID, WiFi.SSID(i).c_str(), LV_DROPDOWN_POS_LAST);
+      // Populate dropdown with discovered networks
+      for (int i = 0; i < wifiNetwork; i++)
+      {
+        lv_dropdown_add_option(ui_ddlWifiSSID, WiFi.SSID(i).c_str(), LV_DROPDOWN_POS_LAST);
+      }
+
+      // Show details for the first network (only if results exist)
+      if (wifiNetwork > 0)
+      {
+        String ssid;
+        int32_t rssi;
+        uint8_t encryptionType;
+        uint8_t *bssid;
+        int32_t channel;
+
+        WiFi.getNetworkInfo(0, ssid, encryptionType, rssi, bssid, channel);
+
+        if (bssid != NULL) {
+          char mac[18];
+          snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
+                   bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+
+          char textBuf[256];
+          snprintf(textBuf, sizeof(textBuf),
+                   "SSID: %s\nMAC: %s\nRSSI: %d dBm\nChannel: %d\nEncryption Type: %s\n\n",
+                   ssid.c_str(), mac, rssi, channel, GetEncryptionTypeString(encryptionType));
+          lv_textarea_add_text(ui_txtWifiScanNetsFound, textBuf);
+        }
+      }
+
+      xSemaphoreGive(lvgl_mutex);
     }
-
-    // Update the textarea with the first result
-    String ssid;
-    int32_t rssi;
-    uint8_t encryptionType;
-    uint8_t *bssid;
-    int32_t channel;
-
-    WiFi.getNetworkInfo(0, ssid, encryptionType, rssi, bssid, channel);
-
-    String MAC = String(bssid[0], HEX) + ":" + String(bssid[1], HEX) + ":" + String(bssid[2], HEX) + ":" + String(bssid[3], HEX) + ":" + String(bssid[4], HEX) + ":" + String(bssid[5], HEX);
-    MAC.toUpperCase();
-
-    Print_Debug(String(String("View Network, SSID: ") + String(ssid) + String(" | MAC: ") + String(MAC) + String(" | RSSI: ") + String(rssi) + String(" dBm | Channel: ") + String(channel) + String(" | Encryption Type: ") + String(GetEncryptionTypeString(encryptionType))).c_str());
-
-    // Update the textarea
-    lv_textarea_add_text(ui_txtWifiScanNetsFound, String(String("SSID: ") + String(ssid) + String("\nMAC: ") + String(MAC) + String("\nRSSI: ") + String(rssi) + String(" dBm\n") + String("Channel: ") + String(channel) + String("\nEncryption Type: ") + String(GetEncryptionTypeString(encryptionType)) + String("\n\n")).c_str());
 
     currentState = STATE_IDLE;
   }
@@ -190,22 +252,30 @@ void loop()
   {
     if (SUBGHZ.ProtAnalyzerLoop())
     {
-      SUBGHZ.showResultProtAnalyzer();
-      delay(1000); 
+      // showResultProtAnalyzer() makes LVGL calls — protect with mutex
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        SUBGHZ.showResultProtAnalyzer();
+        xSemaphoreGive(lvgl_mutex);
+      }
+      vTaskDelay(pdMS_TO_TICKS(1000));
       SUBGHZ.resetProtAnalyzer();
     }
-    delay(1);
+    vTaskDelay(1);
   }
   else if (currentState == STATE_CAPTURE)
   {
     if (SUBGHZ.CaptureLoop())
     {
       SUBGHZ.disableReceiver();
-      //delay(1000); //- OZ CHANGES FOR TESTING
-      SUBGHZ.showResultRecPlay();
+      // showResultRecPlay() makes LVGL calls — protect with mutex
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        SUBGHZ.showResultRecPlay();
+        lv_obj_add_state(ui_btnStop, LV_STATE_DISABLED);
+        xSemaphoreGive(lvgl_mutex);
+      }
       currentState = STATE_IDLE;
     }
-    delay(1);
+    vTaskDelay(1);
   }
   else if (currentState == STATE_PLAYBACK)
   {
@@ -216,10 +286,17 @@ void loop()
   }
   else if (currentState == STATE_SCANNER)
   {
-    SUBGHZ.ScannerLoop();
+    // ScannerLoop() reads LVGL widgets (arcs, labels) and writes to textarea
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+      SUBGHZ.ScannerLoop();
+      xSemaphoreGive(lvgl_mutex);
+    }
   }
   else if (currentState == STATE_GENERATOR)
   {
+    // Tight loop for RF signal generation — GPIO toggling at 255us intervals.
+    // No LVGL calls inside, so no mutex needed. State change comes from
+    // event handler on Core 0 when user flips the switch.
     while (currentState == STATE_GENERATOR)
     {
       SUBGHZ.GeneratorLoop();
@@ -232,7 +309,10 @@ void loop()
     SUBGHZ.enableTransmit();
     if (SUBGHZ.send_tesla())
     {
-      lv_label_set_text(ui_lblPresetsStatus, "Sending EU Tesla..");
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        lv_label_set_text(ui_lblPresetsStatus, "Sending US Tesla..");
+        xSemaphoreGive(lvgl_mutex);
+      }
     }
     SUBGHZ.disableTransmit();
     currentState = STATE_TESLA_EU;
@@ -243,53 +323,293 @@ void loop()
     SUBGHZ.enableTransmit();
     if (SUBGHZ.send_tesla())
     {
-      lv_label_set_text(ui_lblPresetsStatus, "Sending Tesla Complete !");
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        lv_label_set_text(ui_lblPresetsStatus, "Sending Tesla Complete !");
+        xSemaphoreGive(lvgl_mutex);
+      }
     }
     SUBGHZ.disableTransmit();
     currentState = STATE_IDLE;
   }
   else if (currentState == STATE_SEND_FLIPPER)
   {
-    Print_Debug(String("Send RAW Data, sample count: " + String(tempSampleCount) + String(" | Frequency: ") + String(tempFreq)).c_str());
+    char dbg[80];
+    snprintf(dbg, sizeof(dbg), "Send RAW Data, sample count: %d | Frequency: %.2f", tempSampleCount, tempFreq);
+    Print_Debug(dbg);
 
     SUBGHZ.setFrequency(tempFreq);
     SUBGHZ.enableTransmit();
     SUBGHZ.sendSamples(tempSample, tempSampleCount);
     SUBGHZ.disableTransmit();
 
-    lv_label_set_text(ui_lblPresetsStatus, String("Sending Flipper Complete ! \n\nSample: " + String(tempSampleCount) + String(" | Freq: ") + String(tempFreq) + String(" mHz")).c_str());
-
-    currentState = STATE_IDLE;
-  }else if (currentState == STATE_SEND_BLESPAM)
-  {
-    Print_Debug(String("Send BLE SPAM, sample count: " + String(tempSampleCount) + String(" | Frequency: ") + String(tempFreq)).c_str());
-
-    BLEspam();
-
-    lv_label_set_text(ui_lblPresetsStatus, String("Sending BLE SPAM! \n\nSample: " + String(tempSampleCount) + String(" | Freq: ") + String(tempFreq) + String(" mHz")).c_str());
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      char status[80];
+      snprintf(status, sizeof(status), "Flipper Complete!\n\nSample: %d | Freq: %.2f mHz", tempSampleCount, tempFreq);
+      lv_label_set_text(ui_lblPresetsStatus, status);
+      xSemaphoreGive(lvgl_mutex);
+    }
 
     currentState = STATE_IDLE;
   }
+  else if (currentState == STATE_BLE_INIT)
+  {
+    // Heavy BLE initialization deferred here from LVGL event callback.
+    // NimBLEDevice::init() would trigger the interrupt watchdog
+    // if called from Core 0's lv_timer_handler context.
+    Print_Debug("BLE init starting on Core 1");
+
+    if (!BLEinit()) {
+      // Init failed — update UI and go back to IDLE
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        lv_label_set_text(ui_lblBLEStatus, "Init failed!");
+        lv_obj_set_style_text_color(ui_lblBLEStatus, lv_color_hex(0xFF0000), 0);
+        lv_obj_clear_state(ui_btnBLEStart, LV_STATE_DISABLED);
+        lv_obj_add_state(ui_btnBLEStop, LV_STATE_DISABLED);
+        xSemaphoreGive(lvgl_mutex);
+      }
+      currentState = STATE_IDLE;
+    } else {
+      BLEsetPayload(bleCurrentDevice);
+
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        lv_label_set_text(ui_lblBLEStatus, "Spamming...");
+        xSemaphoreGive(lvgl_mutex);
+      }
+
+      currentState = STATE_SEND_BLESPAM;
+    }
+  }
+  else if (currentState == STATE_SEND_BLESPAM)
+  {
+    BLEadvertise(); // 100ms advertising burst (no mutex needed for BLE)
+    bleSpamCount++;
+
+    // Take mutex ONLY for the brief LVGL UI updates — don't hold it
+    // during the 100ms BLE advertising or it would block display refresh
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+      char countBuf[32];
+      snprintf(countBuf, sizeof(countBuf), "Packets: %d", bleSpamCount);
+      lv_label_set_text(ui_lblBLECount, countBuf);
+
+      // Log every 10th packet to the textarea
+      if (bleSpamCount % 10 == 0) {
+        char logBuf[48];
+        snprintf(logBuf, sizeof(logBuf), "TX #%d: %s\n", bleSpamCount,
+                 blePayloadNames[bleCurrentDevice]);
+        lv_textarea_add_text(ui_txtBLELog, logBuf);
+      }
+      xSemaphoreGive(lvgl_mutex);
+    }
+
+    // Cycle to next device type in random mode
+    if (bleRandomMode) {
+      bleCurrentDevice = (bleCurrentDevice + 1) % BLE_PAYLOAD_COUNT;
+      BLEsetPayload(bleCurrentDevice);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+  else if (currentState == STATE_BLE_SCAN_INIT)
+  {
+    // Initialize BLE on Core 1, then start scan
+    if (!BLEinit()) {
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        lv_label_set_text(ui_lblBLEScanStatus, "BLE init failed!");
+        lv_obj_set_style_text_color(ui_lblBLEScanStatus, lv_color_hex(0xFF0000), 0);
+        lv_obj_clear_state(ui_btnBLEScanStart, LV_STATE_DISABLED);
+        lv_obj_add_state(ui_btnBLEScanStop, LV_STATE_DISABLED);
+        xSemaphoreGive(lvgl_mutex);
+      }
+      currentState = STATE_IDLE;
+    } else {
+      BLEscanStart(bleScanDuration);
+      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        char statusBuf[32];
+        snprintf(statusBuf, sizeof(statusBuf), "Scanning (%ds)...", bleScanDuration);
+        lv_label_set_text(ui_lblBLEScanStatus, statusBuf);
+        lv_obj_set_style_text_color(ui_lblBLEScanStatus, lv_color_hex(0x00FFEB), 0);
+        xSemaphoreGive(lvgl_mutex);
+      }
+      currentState = STATE_BLE_SCAN_RUN;
+    }
+  }
+  else if (currentState == STATE_BLE_SCAN_RUN)
+  {
+    if (BLEscanIsRunning()) {
+      vTaskDelay(pdMS_TO_TICKS(500));
+      return;
+    }
+
+    // Scan finished — collect and display results
+    int count = BLEscanGetResults();
+
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+      lv_textarea_set_text(ui_txtBLEScanResults, "");
+
+      for (int i = 0; i < count; i++) {
+        char line[80];
+        snprintf(line, sizeof(line), "%s\n  %s  RSSI:%d\n",
+                 bleScanResults[i].name,
+                 bleScanResults[i].addr,
+                 bleScanResults[i].rssi);
+        lv_textarea_add_text(ui_txtBLEScanResults, line);
+      }
+
+      char countBuf[32];
+      snprintf(countBuf, sizeof(countBuf), "Devices: %d", count);
+      lv_label_set_text(ui_lblBLEScanCount, countBuf);
+      lv_label_set_text(ui_lblBLEScanStatus, "Scan complete");
+      lv_obj_set_style_text_color(ui_lblBLEScanStatus, lv_color_hex(0x00FF00), 0);
+      lv_obj_clear_state(ui_btnBLEScanStart, LV_STATE_DISABLED);
+      lv_obj_add_state(ui_btnBLEScanStop, LV_STATE_DISABLED);
+      xSemaphoreGive(lvgl_mutex);
+    }
+
+    currentState = STATE_IDLE;
+  }
+  else if (currentState == STATE_SEND_TOUCHTUNES)
+  {
+    Print_Debug("Sending TouchTunes command");
+
+    sendTouchTunesCommand(tt_pending_pin, tt_pending_cmd);
+
+    char dbg[64];
+    snprintf(dbg, sizeof(dbg), "Sent TouchTunes PIN:%03d CMD:0x%02X", tt_pending_pin, tt_pending_cmd);
+    Print_Debug(dbg);
+
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      lv_label_set_text(tt_lblStatus, "Sent!");
+      xSemaphoreGive(lvgl_mutex);
+    }
+
+    currentState = STATE_IDLE;
+  }
+  else if (currentState == STATE_WIFI_SNIFF)
+  {
+    WiFiMarauder::sniffLoop();  // Channel hopping
+
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+      // Update stats labels
+      char statsBuf[64];
+      snprintf(statsBuf, sizeof(statsBuf), "Mgmt:%d  Data:%d  Probe:%d",
+               WiFiMarauder::pktMgmt, WiFiMarauder::pktData, WiFiMarauder::probeCount);
+      lv_label_set_text(ui_lblSniffStats, statsBuf);
+
+      char chBuf[16];
+      snprintf(chBuf, sizeof(chBuf), "Ch: %d", WiFiMarauder::sniffChannel);
+      lv_label_set_text(ui_lblSniffChannel, chBuf);
+
+      // Drain new probe entries — max 5 per cycle to avoid holding mutex too long
+      int drained = 0;
+      while (WiFiMarauder::probeReadIdx < WiFiMarauder::probeWriteIdx && drained < 5) {
+        int idx = WiFiMarauder::probeReadIdx % WiFiMarauder::PROBE_BUF_SIZE;
+        const WiFiMarauder::ProbeEntry &p = WiFiMarauder::probes[idx];
+        char line[80];
+        snprintf(line, sizeof(line), "%02X:%02X:%02X:%02X:%02X:%02X  %-16s  %d\n",
+                 p.mac[0], p.mac[1], p.mac[2], p.mac[3], p.mac[4], p.mac[5],
+                 p.ssid, p.rssi);
+
+        // Cap textarea to ~3000 chars to prevent unbounded RAM growth
+        const char* curText = lv_textarea_get_text(ui_txtSniffLog);
+        if (curText && strlen(curText) > 3000) {
+          // Find ~halfway point at a newline and keep only the second half
+          const char* mid = curText + strlen(curText) / 2;
+          const char* nl = strchr(mid, '\n');
+          if (nl) {
+            lv_textarea_set_text(ui_txtSniffLog, nl + 1);
+          } else {
+            lv_textarea_set_text(ui_txtSniffLog, "");
+          }
+        }
+
+        lv_textarea_add_text(ui_txtSniffLog, line);
+        WiFiMarauder::probeReadIdx++;
+        drained++;
+      }
+
+      // If writer lapped reader (overflow), catch up
+      if (WiFiMarauder::probeWriteIdx - WiFiMarauder::probeReadIdx > WiFiMarauder::PROBE_BUF_SIZE) {
+        WiFiMarauder::probeReadIdx = WiFiMarauder::probeWriteIdx - WiFiMarauder::PROBE_BUF_SIZE;
+      }
+
+      xSemaphoreGive(lvgl_mutex);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+  else if (currentState == STATE_BEACON_FLOOD)
+  {
+    WiFiMarauder::beaconLoop();  // Sends batch + vTaskDelay(10) inside
+
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+      char countBuf[32];
+      snprintf(countBuf, sizeof(countBuf), "Beacons: %d", WiFiMarauder::beaconCount);
+      lv_label_set_text(ui_lblBeaconCount, countBuf);
+
+      // Log every 100 beacons
+      if (WiFiMarauder::beaconCount > 0 && WiFiMarauder::beaconCount % 100 < 30) {
+        char logBuf[48];
+        snprintf(logBuf, sizeof(logBuf), "TX batch: %d total\n", WiFiMarauder::beaconCount);
+        lv_textarea_add_text(ui_txtBeaconLog, logBuf);
+      }
+      xSemaphoreGive(lvgl_mutex);
+    }
+  }
+  else if (currentState == STATE_DEAUTH_SCAN)
+  {
+    // Synchronous WiFi scan — runs on Core 1, may take a few seconds
+    int count = WiFiMarauder::scanTargets();
+
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (count > 0) {
+        // Build dropdown options: "SSID (ch X, -YYdBm)"
+        char opts[1024] = {0};
+        int pos = 0;
+        for (int i = 0; i < count && pos < (int)sizeof(opts) - 64; i++) {
+          if (i > 0) opts[pos++] = '\n';
+          pos += snprintf(&opts[pos], sizeof(opts) - pos, "%s (ch%d %ddBm)",
+                          WiFiMarauder::targets[i].ssid,
+                          WiFiMarauder::targets[i].channel,
+                          WiFiMarauder::targets[i].rssi);
+        }
+        lv_dropdown_set_options(ui_ddlDeauthTarget, opts);
+        char statusBuf[32];
+        snprintf(statusBuf, sizeof(statusBuf), "Found %d targets", count);
+        lv_label_set_text(ui_lblDeauthStatus, statusBuf);
+      } else {
+        lv_dropdown_set_options(ui_ddlDeauthTarget, "No targets found");
+        lv_label_set_text(ui_lblDeauthStatus, "No targets found");
+      }
+      lv_obj_set_style_text_color(ui_lblDeauthStatus, lv_color_hex(0xFAFF00), 0);
+      xSemaphoreGive(lvgl_mutex);
+    }
+
+    currentState = STATE_IDLE;
+  }
+  else if (currentState == STATE_DEAUTH_RUN)
+  {
+    WiFiMarauder::deauthLoop();  // Sends burst + vTaskDelay(50) inside
+
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+      char countBuf[32];
+      snprintf(countBuf, sizeof(countBuf), "Packets: %d", WiFiMarauder::deauthCount);
+      lv_label_set_text(ui_lblDeauthCount, countBuf);
+
+      if (WiFiMarauder::deauthCount > 0 && WiFiMarauder::deauthCount % 100 < 20) {
+        char logBuf[48];
+        snprintf(logBuf, sizeof(logBuf), "Deauth burst: %d total\n", WiFiMarauder::deauthCount);
+        lv_textarea_add_text(ui_txtDeauthLog, logBuf);
+      }
+      xSemaphoreGive(lvgl_mutex);
+    }
+  }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// Event Present in Main Screen
-// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// =================================================================
+// LVGL Event Handlers — Main Screen
+// All event handlers below run on Core 0 inside lv_timer_handler(),
+// so LVGL calls here are already mutex-protected.
+// =================================================================
 
 // ---------------------------------------------------------------------
 // void event_load_screen_scan(lv_event_t *e)
@@ -401,9 +721,30 @@ void event_load_screen_flipper(lv_event_t *e)
 
   if (sd_card_is_present())
   {
-    refresh_sd_card_folder(ui_ddPresetsFolder, String("/").c_str());
+    // Auto-create /captures folder if it doesn't exist
+    if (!SD.exists("/captures")) {
+      SD.mkdir("/captures");
+    }
 
-    refresh_sd_card_file(ui_ddPresetsFile, String("/").c_str(), ".sub", true);
+    refresh_sd_card_folder(ui_ddPresetsFolder, "/");
+
+    // Find and select the "captures" folder in the dropdown
+    int32_t capturesIdx = lv_dropdown_get_option_index(ui_ddPresetsFolder, "captures");
+    if (capturesIdx >= 0) {
+      lv_dropdown_set_selected(ui_ddPresetsFolder, capturesIdx);
+    }
+
+    // Show .sub files from the selected folder
+    char *currentFolder = (char *)malloc(generaleSize * sizeof(char));
+    lv_dropdown_get_selected_str(ui_ddPresetsFolder, currentFolder, generaleSize);
+    if (strcmp(currentFolder, "/") == 0) {
+      refresh_sd_card_file(ui_ddPresetsFile, "/", ".sub", true);
+    } else {
+      char folderPath[128];
+      snprintf(folderPath, sizeof(folderPath), "/%s", currentFolder);
+      refresh_sd_card_file(ui_ddPresetsFile, folderPath, ".sub", true);
+    }
+    free(currentFolder);
 
     now_close_sd_card();
   }
@@ -442,11 +783,13 @@ void event_refresh_flipper_file(lv_event_t *e)
 
     if (strcmp(currentFolder, "/") == 0)
     {
-      refresh_sd_card_file(ui_ddPresetsFile, String("/").c_str(), ".sub", true);
+      refresh_sd_card_file(ui_ddPresetsFile, "/", ".sub", true);
     }
     else
     {
-      refresh_sd_card_file(ui_ddPresetsFile, String(String("/") + String(currentFolder)).c_str(), ".sub", true);
+      char folderPath[128];
+      snprintf(folderPath, sizeof(folderPath), "/%s", currentFolder);
+      refresh_sd_card_file(ui_ddPresetsFile, folderPath, ".sub", true);
     }
 
     now_close_sd_card();
@@ -463,6 +806,109 @@ void event_select_flipper_file(lv_event_t *e)
   Print_Debug("event_select_flipper_file");
 
   lv_label_set_text(ui_lblPresetsStatus, "-Status-");
+}
+
+// ---------------------------------------------------------------------
+// void event_delete_flipper_file(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_delete_flipper_file(lv_event_t *e)
+{
+  Print_Debug("event_delete_flipper_file");
+
+  // Check if there's a file selected
+  uint16_t fileCount = lv_dropdown_get_option_cnt(ui_ddPresetsFile);
+  if (fileCount == 0) {
+    lv_label_set_text(ui_lblPresetsStatus, "No file selected");
+    return;
+  }
+
+  // Build full path from selected folder + file
+  int folderIndex = lv_dropdown_get_selected(ui_ddPresetsFolder);
+  char *folderbuffer = (char *)malloc(generaleSize * sizeof(char));
+  char *filebuffer = (char *)malloc(generaleSize * sizeof(char));
+
+  lv_dropdown_get_selected_str(ui_ddPresetsFolder, folderbuffer, generaleSize);
+  lv_dropdown_get_selected_str(ui_ddPresetsFile, filebuffer, generaleSize);
+
+  char fullpath[256];
+  if (folderIndex == 0) {
+    snprintf(fullpath, sizeof(fullpath), "/%s", filebuffer);
+  } else {
+    snprintf(fullpath, sizeof(fullpath), "/%s/%s", folderbuffer, filebuffer);
+  }
+
+  free(folderbuffer);
+  free(filebuffer);
+
+  // Delete the file
+  if (sd_card_is_present())
+  {
+    if (SD.remove(fullpath)) {
+      char statusBuf[80];
+      snprintf(statusBuf, sizeof(statusBuf), "Deleted: %s", fullpath);
+      lv_label_set_text(ui_lblPresetsStatus, statusBuf);
+      Print_Debug(statusBuf);
+    } else {
+      lv_label_set_text(ui_lblPresetsStatus, "Delete failed!");
+    }
+
+    // Refresh the file list
+    char *currentFolder = (char *)malloc(generaleSize * sizeof(char));
+    lv_dropdown_get_selected_str(ui_ddPresetsFolder, currentFolder, generaleSize);
+    if (strcmp(currentFolder, "/") == 0) {
+      refresh_sd_card_file(ui_ddPresetsFile, "/", ".sub", true);
+    } else {
+      char folderPath[128];
+      snprintf(folderPath, sizeof(folderPath), "/%s", currentFolder);
+      refresh_sd_card_file(ui_ddPresetsFile, folderPath, ".sub", true);
+    }
+    free(currentFolder);
+
+    now_close_sd_card();
+  }
+  else
+  {
+    lv_label_set_text(ui_lblPresetsStatus, "SD Card not found");
+  }
+}
+
+// ---------------------------------------------------------------------
+// void event_refresh_flipper_list(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_refresh_flipper_list(lv_event_t *e)
+{
+  Print_Debug("event_refresh_flipper_list");
+
+  if (sd_card_is_present())
+  {
+    refresh_sd_card_folder(ui_ddPresetsFolder, "/");
+
+    // Re-select captures folder if it exists
+    int32_t capturesIdx = lv_dropdown_get_option_index(ui_ddPresetsFolder, "captures");
+    if (capturesIdx >= 0) {
+      lv_dropdown_set_selected(ui_ddPresetsFolder, capturesIdx);
+    }
+
+    // Refresh files from selected folder
+    char *currentFolder = (char *)malloc(generaleSize * sizeof(char));
+    lv_dropdown_get_selected_str(ui_ddPresetsFolder, currentFolder, generaleSize);
+    if (strcmp(currentFolder, "/") == 0) {
+      refresh_sd_card_file(ui_ddPresetsFile, "/", ".sub", true);
+    } else {
+      char folderPath[128];
+      snprintf(folderPath, sizeof(folderPath), "/%s", currentFolder);
+      refresh_sd_card_file(ui_ddPresetsFile, folderPath, ".sub", true);
+    }
+    free(currentFolder);
+
+    now_close_sd_card();
+
+    lv_label_set_text(ui_lblPresetsStatus, "Refreshed");
+  }
+  else
+  {
+    lv_label_set_text(ui_lblPresetsStatus, "SD Card not found");
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -496,15 +942,15 @@ void event_send_flipper_file(lv_event_t *e)
   lv_dropdown_get_selected_str(ui_ddPresetsFolder, folderbuffer, generaleSize);
   lv_dropdown_get_selected_str(ui_ddPresetsFile, filebuffer, generaleSize);
 
-  String fullfilename = "";
+  char fullfilename[256];
 
   if (index == 0) // root path "/"
   {
-    fullfilename += String(String("/") + String(filebuffer));
+    snprintf(fullfilename, sizeof(fullfilename), "/%s", filebuffer);
   }
   else // root path "/" + folder
   {
-    fullfilename += String("/") + String(folderbuffer) + String("/") + String(filebuffer);
+    snprintf(fullfilename, sizeof(fullfilename), "/%s/%s", folderbuffer, filebuffer);
   }
 
   free(folderbuffer);
@@ -515,7 +961,7 @@ void event_send_flipper_file(lv_event_t *e)
 
   if (sd_card_is_present())
   {
-    if (read_sd_card_flipper_file(String(fullfilename).c_str()))
+    if (read_sd_card_flipper_file(fullfilename))
     {
       parsed = true;
     }
@@ -594,11 +1040,9 @@ void event_enable_ota_device(lv_event_t *e)
 {
   Print_Debug("event_enable_ota_device");
 
-  // Your code here
   OTAInProgress = 1;
   WiFi.softAP(ssid, password, wifi_channel);
 
-  lv_label_set_text(ui_lblSettingsStatus, "Connect to IP");
   lv_label_set_text(ui_lblSettingsStatus, "OTA READY");
   lv_label_set_text(ui_lblSettingsIPAddr, "192.168.4.1"); // Took Out String(WiFi.softAPIP()).c_str()
 
@@ -716,7 +1160,9 @@ void event_set_scan_preset_freq(lv_event_t *e)
   else
   {
     lv_textarea_set_text(ui_txtScanStartFq, currentFreq);
-    lv_textarea_set_text(ui_txtScanStopFq, String(String(currentFreq).toFloat() + 10.00).c_str());
+    char stopFqBuf[16];
+    snprintf(stopFqBuf, sizeof(stopFqBuf), "%.2f", atof(currentFreq) + 10.00);
+    lv_textarea_set_text(ui_txtScanStopFq, stopFqBuf);
   }
 
   free(currentFreq);
@@ -743,8 +1189,8 @@ void event_start_stop_scanner(lv_event_t *e)
   {
     // Start
     lv_textarea_set_cursor_click_pos(ui_txtScannerData, false);
-    float start = String(lv_textarea_get_text(ui_txtScanStartFq)).toFloat();
-    float stop = String(lv_textarea_get_text(ui_txtScanStopFq)).toFloat();
+    float start = atof(lv_textarea_get_text(ui_txtScanStartFq));
+    float stop = atof(lv_textarea_get_text(ui_txtScanStopFq));
     lv_obj_add_state(ui_swScannerOn, LV_STATE_CHECKED);
     lv_label_set_text(ui_lblScanEnable, "SCAN ON");
     SUBGHZ.enableScanner(start, stop);
@@ -793,7 +1239,7 @@ void event_start_stop_packet_gen(lv_event_t *e)
   if (currentState == STATE_IDLE)
   {
     // Start
-    float freq = String(lv_textarea_get_text(ui_txt1101GenFreq)).toFloat();
+    float freq = atof(lv_textarea_get_text(ui_txt1101GenFreq));
     lv_obj_add_state(ui_swGenEnable, LV_STATE_CHECKED);
     lv_label_set_text(ui_lblGenEnable, "GEN ON");
     SUBGHZ.setFrequency(freq);
@@ -840,6 +1286,36 @@ void event_set_preset_rec_play(lv_event_t *e)
 }
 
 // ---------------------------------------------------------------------
+// void event_recplay_freq_preset(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_recplay_freq_preset(lv_event_t *e)
+{
+  lv_event_code_t code = lv_event_get_code(e);
+  if (code != LV_EVENT_VALUE_CHANGED) return;
+
+  uint16_t sel = lv_dropdown_get_selected(ui_ddlRecPlayFreqPreset);
+  if (sel == 0) return; // "< Manual" — leave freq textarea as-is
+  char buf[10];
+  lv_dropdown_get_selected_str(ui_ddlRecPlayFreqPreset, buf, sizeof(buf));
+  lv_textarea_set_text(ui_txtRecPlayFq, buf);
+}
+
+// ---------------------------------------------------------------------
+// void event_stop_rec_play(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_stop_rec_play(lv_event_t *e)
+{
+  if (currentState == STATE_CAPTURE)
+  {
+    SUBGHZ.disableReceiver();
+    lv_obj_add_flag(ui_indRed, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_lblRecPlayStatus, "Capture Stopped");
+    lv_obj_add_state(ui_btnStop, LV_STATE_DISABLED);
+    currentState = STATE_IDLE;
+  }
+}
+
+// ---------------------------------------------------------------------
 // void event_capture_rec_play(lv_event_t *e)
 // ---------------------------------------------------------------------
 void event_capture_rec_play(lv_event_t *e)
@@ -849,14 +1325,16 @@ void event_capture_rec_play(lv_event_t *e)
   if (currentState == STATE_IDLE)
   {
     // Start
-    float freq = String(lv_textarea_get_text(ui_txtRecPlayFq)).toFloat();
+    float freq = atof(lv_textarea_get_text(ui_txtRecPlayFq));
     lv_obj_add_flag(ui_indGreen, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_indRed, LV_OBJ_FLAG_HIDDEN);
     lv_textarea_set_text(ui_txtRawData, "");
-    lv_label_set_text(ui_lblRecPlayStatus, String("Capture Started..").c_str());
+    lv_label_set_text(ui_lblProtocolID, "");
+    lv_label_set_text(ui_lblRecPlayStatus, "Capture Started..");
 
     SUBGHZ.setFrequency(freq);
     SUBGHZ.enableReceiver();
+    lv_obj_clear_state(ui_btnStop, LV_STATE_DISABLED);
     currentState = STATE_CAPTURE;
   }
 }
@@ -870,11 +1348,8 @@ void event_playback_rec_play(lv_event_t *e)
 
   if (currentState == STATE_IDLE)
   {
-    // Start
-    lv_obj_add_flag(ui_indGreen, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_indRed, LV_OBJ_FLAG_HIDDEN);
-
-    float freq = String(lv_textarea_get_text(ui_txtRecPlayFq)).toFloat();
+    // Green stays visible (buffer still has data to play again)
+    float freq = atof(lv_textarea_get_text(ui_txtRecPlayFq));
     SUBGHZ.setFrequency(freq);
 
     currentState = STATE_PLAYBACK;
@@ -893,7 +1368,9 @@ void event_set_modulation(lv_event_t *e)
 {
   Print_Debug("event_set_modulation");
 
-  uint8_t index = lv_dropdown_get_selected(ui_ddlCC1101PktFormat);
+  // BUG FIX: was reading from ui_ddlCC1101PktFormat (packet format dropdown)
+  // instead of the modulation dropdown. Modulation never got set correctly.
+  uint8_t index = lv_dropdown_get_selected(ui_ddlCC1101ModType);
 
   switch (index)
   {
@@ -903,13 +1380,13 @@ void event_set_modulation(lv_event_t *e)
   case 1: // 2-FSK
     SUBGHZ.setModulation(0);
     break;
+  case 2: // GFSK
+    SUBGHZ.setModulation(1);
+    break;
   case 3: // 4-FSK
     SUBGHZ.setModulation(3);
     break;
-  case 4: // GFSK
-    SUBGHZ.setModulation(1);
-    break;
-  case 5: // MSK
+  case 4: // MSK
     SUBGHZ.setModulation(4);
     break;
   default:
@@ -934,10 +1411,10 @@ void event_set_packet_format(lv_event_t *e)
   case 1: // SYNCHRONOUS
     SUBGHZ.setPacketFormat(1);
     break;
-  case 3: // RANDOM TX
+  case 2: // RANDOM TX
     SUBGHZ.setPacketFormat(2);
     break;
-  case 4: // ASYNCHRONOUS
+  case 3: // ASYNCHRONOUS
     SUBGHZ.setPacketFormat(3);
     break;
   default:
@@ -958,38 +1435,102 @@ void event_set_preset(lv_event_t *e)
   {
   case 0:
     SUBGHZ.setPreset(AM650);
-    lv_dropdown_set_selected(ui_ddlCC1101ModType, 0); // Set Modulation
-    lv_arc_set_value(ui_arcScanBW, 650);              // Set bandwidth
+    lv_dropdown_set_selected(ui_ddlCC1101ModType, 0);
+    lv_arc_set_value(ui_arcScanBW, 650);
     lv_label_set_text(ui_lblRXBWArc, "650");
-    lv_arc_set_value(ui_arcDeviation, 1); // Set deviation
+    lv_arc_set_value(ui_arcDeviation, 1);
     lv_label_set_text(ui_lblDeviation, "1");
+    lv_arc_set_value(ui_arcDataRate, 4);
+    lv_label_set_text(ui_lblDataRate, "4");
     break;
   case 1:
     SUBGHZ.setPreset(AM270);
-    lv_dropdown_set_selected(ui_ddlCC1101ModType, 0); // Set Modulation
-    lv_arc_set_value(ui_arcScanBW, 270);              // Set bandwidth
+    lv_dropdown_set_selected(ui_ddlCC1101ModType, 0);
+    lv_arc_set_value(ui_arcScanBW, 270);
     lv_label_set_text(ui_lblRXBWArc, "270");
-    lv_arc_set_value(ui_arcDeviation, 1); // Set deviation
+    lv_arc_set_value(ui_arcDeviation, 1);
     lv_label_set_text(ui_lblDeviation, "1");
+    lv_arc_set_value(ui_arcDataRate, 4);
+    lv_label_set_text(ui_lblDataRate, "4");
     break;
   case 2:
     SUBGHZ.setPreset(FM238);
-    lv_dropdown_set_selected(ui_ddlCC1101ModType, 1); // Set Modulation
-    lv_arc_set_value(ui_arcScanBW, 270);              // Set bandwidth
+    lv_dropdown_set_selected(ui_ddlCC1101ModType, 1);
+    lv_arc_set_value(ui_arcScanBW, 270);
     lv_label_set_text(ui_lblRXBWArc, "270");
-    lv_arc_set_value(ui_arcDeviation, 2); // Set deviation
+    lv_arc_set_value(ui_arcDeviation, 2);
     lv_label_set_text(ui_lblDeviation, "2");
+    lv_arc_set_value(ui_arcDataRate, 5);
+    lv_label_set_text(ui_lblDataRate, "5");
     break;
   case 3:
     SUBGHZ.setPreset(FM476);
-    lv_dropdown_set_selected(ui_ddlCC1101ModType, 1); // Set Modulation
-    lv_arc_set_value(ui_arcScanBW, 270);              // Set bandwidth
+    lv_dropdown_set_selected(ui_ddlCC1101ModType, 1);
+    lv_arc_set_value(ui_arcScanBW, 270);
     lv_label_set_text(ui_lblRXBWArc, "270");
-    lv_arc_set_value(ui_arcDeviation, 47); // Set deviation
+    lv_arc_set_value(ui_arcDeviation, 47);
     lv_label_set_text(ui_lblDeviation, "47");
+    lv_arc_set_value(ui_arcDataRate, 5);
+    lv_label_set_text(ui_lblDataRate, "5");
     break;
   default:
     break;
+  }
+}
+
+// ---------------------------------------------------------------------
+// void event_set_rx_bw(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_set_rx_bw(lv_event_t *e)
+{
+  Print_Debug("event_set_rx_bw");
+  int bw = lv_arc_get_value(ui_arcScanBW);
+  SUBGHZ.setRxBandwidth((float)bw);
+}
+
+// ---------------------------------------------------------------------
+// void event_set_deviation(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_set_deviation(lv_event_t *e)
+{
+  Print_Debug("event_set_deviation");
+  int dev = lv_arc_get_value(ui_arcDeviation);
+  SUBGHZ.setDeviation((float)dev);
+}
+
+// ---------------------------------------------------------------------
+// void event_set_data_rate(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_set_data_rate(lv_event_t *e)
+{
+  Print_Debug("event_set_data_rate");
+  int drate = lv_arc_get_value(ui_arcDataRate);
+  SUBGHZ.setDataRate((float)drate);
+}
+
+// ---------------------------------------------------------------------
+// void event_set_tx_power(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_set_tx_power(lv_event_t *e)
+{
+  Print_Debug("event_set_tx_power");
+  // Dropdown index to dBm: -30,-20,-15,-10,-6,0,5,7,10,12
+  static const int paValues[] = {-30, -20, -15, -10, -6, 0, 5, 7, 10, 12};
+  uint8_t index = lv_dropdown_get_selected(ui_ddlCC1101TxPower);
+  if (index < sizeof(paValues) / sizeof(paValues[0])) {
+    SUBGHZ.setPower(paValues[index]);
+  }
+}
+
+// ---------------------------------------------------------------------
+// void event_set_sync_mode(lv_event_t *e)
+// ---------------------------------------------------------------------
+void event_set_sync_mode(lv_event_t *e)
+{
+  Print_Debug("event_set_sync_mode");
+  uint8_t index = lv_dropdown_get_selected(ui_ddlCC1101SyncMode);
+  if (index <= 7) {
+    SUBGHZ.setSyncMode(index);
   }
 }
 
@@ -1048,7 +1589,7 @@ void event_start_stop_protocol_analyzer(lv_event_t *e)
   if (currentState == STATE_IDLE)
   {
     // Start
-    float freq = String(lv_textarea_get_text(ui_txtMainFreq)).toFloat();
+    float freq = atof(lv_textarea_get_text(ui_txtMainFreq));
     lv_obj_add_state(ui_swtProtAnaRxEn, LV_STATE_CHECKED);
     lv_label_set_text(ui_lblProtAnaRXEn, "RX ON");
     SUBGHZ.setFrequency(freq);
@@ -1079,6 +1620,7 @@ void event_clear_protocol_analyzer(lv_event_t *e)
   lv_textarea_set_text(ui_txtProtAnaResults, "");
   lv_textarea_set_text(ui_txtProtAnaBitLength, "-");
   lv_textarea_set_text(ui_txtProtAnaReceived, "");
+  lv_label_set_text(ui_lblProtAnaProtID, "");
 }
 
 // ---------------------------------------------------------------------
@@ -1102,24 +1644,24 @@ void event_replay_protocol_analyzer(lv_event_t *e)
   }
 
   // Send Last Signal
-  float freq = String(lv_textarea_get_text(ui_txtMainFreq)).toFloat();
+  float freq = atof(lv_textarea_get_text(ui_txtMainFreq));
   SUBGHZ.setFrequency(freq);
   SUBGHZ.enableTransmit();
   SUBGHZ.sendLastSignal();
   SUBGHZ.disableTransmit();
 
-  Print_Debug(String(String("Signal transmitted, value: ") +
-                     String(lv_textarea_get_text(ui_txtProtAnaReceived)) +
-                     String(" (") + String(lv_textarea_get_text(ui_txtProtAnaBitLength)) + String(" bit)") +
-                     String(" - Protocol: ") + String(lv_textarea_get_text(ui_txtProtAnaProtocol)) +
-                     String(" - Frequency: ") + String(freq) + String(" mHz"))
-                  .c_str());
+  char txDbg[256];
+  snprintf(txDbg, sizeof(txDbg), "Signal transmitted, value: %s (%s bit) - Protocol: %s - Frequency: %.2f mHz",
+           lv_textarea_get_text(ui_txtProtAnaReceived),
+           lv_textarea_get_text(ui_txtProtAnaBitLength),
+           lv_textarea_get_text(ui_txtProtAnaProtocol), freq);
+  Print_Debug(txDbg);
 
   // Back to recording
   if (inRecordingMode)
   {
     // Start
-    float freq = String(lv_textarea_get_text(ui_txtMainFreq)).toFloat();
+    float freq = atof(lv_textarea_get_text(ui_txtMainFreq));
     lv_obj_add_state(ui_swtProtAnaRxEn, LV_STATE_CHECKED);
     lv_label_set_text(ui_lblProtAnaRXEn, "RX ON");
     SUBGHZ.setFrequency(freq);
@@ -1140,33 +1682,32 @@ void event_rc_switch_send_on(lv_event_t *e)
 {
   Print_Debug("event_rc_switch_send_on");
 
-  SUBGHZ.setFrequency(String(lv_textarea_get_text(ui_txt10PoleFreq)).toFloat());
+  float freq = atof(lv_textarea_get_text(ui_txt10PoleFreq));
+  SUBGHZ.setFrequency(freq);
 
   lv_label_set_text(ui_lblRCSWStatus, "TX 'On' Command.");
 
-  String FirstFive = lv_label_get_text(ui_lblBit0);
-  FirstFive += lv_label_get_text(ui_lblBit1);
-  FirstFive += lv_label_get_text(ui_lblBit2);
-  FirstFive += lv_label_get_text(ui_lblBit3);
-  FirstFive += lv_label_get_text(ui_lblBit4);
-
-  String SecondFive = lv_label_get_text(ui_lblBit5);
-  SecondFive += lv_label_get_text(ui_lblBit6);
-  SecondFive += lv_label_get_text(ui_lblBit7);
-  SecondFive += lv_label_get_text(ui_lblBit8);
-  SecondFive += lv_label_get_text(ui_lblBit9);
+  char firstFive[6], secondFive[6];
+  snprintf(firstFive, sizeof(firstFive), "%s%s%s%s%s",
+           lv_label_get_text(ui_lblBit0), lv_label_get_text(ui_lblBit1),
+           lv_label_get_text(ui_lblBit2), lv_label_get_text(ui_lblBit3),
+           lv_label_get_text(ui_lblBit4));
+  snprintf(secondFive, sizeof(secondFive), "%s%s%s%s%s",
+           lv_label_get_text(ui_lblBit5), lv_label_get_text(ui_lblBit6),
+           lv_label_get_text(ui_lblBit7), lv_label_get_text(ui_lblBit8),
+           lv_label_get_text(ui_lblBit9));
 
   SUBGHZ.enableTransmit();
-  SUBGHZ.switchOn(String(FirstFive).c_str(), String(SecondFive).c_str());
+  SUBGHZ.switchOn(firstFive, secondFive);
   SUBGHZ.disableTransmit();
 
-  // delay(1000);
-  String TxResult = "TX ON: ";
-  TxResult += FirstFive;
-  TxResult += SecondFive;
+  char txBuf[32];
+  snprintf(txBuf, sizeof(txBuf), "TX ON: %s%s", firstFive, secondFive);
+  lv_label_set_text(ui_lblRCSWStatus, txBuf);
 
-  Print_Debug(String(String("Send switch ON, value: ") + String(FirstFive) + String(SecondFive) + String(" - Frequency: ") + String(String(lv_textarea_get_text(ui_txt10PoleFreq)).toFloat()) + String(" mHz")).c_str());
-  lv_label_set_text(ui_lblRCSWStatus, String(TxResult).c_str());
+  char dbgBuf[96];
+  snprintf(dbgBuf, sizeof(dbgBuf), "Send switch ON, value: %s%s - Frequency: %.2f mHz", firstFive, secondFive, freq);
+  Print_Debug(dbgBuf);
 }
 
 // ---------------------------------------------------------------------
@@ -1176,33 +1717,34 @@ void event_rc_switch_send_off(lv_event_t *e)
 {
   Print_Debug("event_rc_switch_send_off");
 
-  SUBGHZ.setFrequency(String(lv_textarea_get_text(ui_txt10PoleFreq)).toFloat());
+  float freq = atof(lv_textarea_get_text(ui_txt10PoleFreq));
+  SUBGHZ.setFrequency(freq);
 
-  lv_label_set_text(ui_lblRCSWStatus, String(SUBGHZ.getFrequency()).c_str()); //"TX 'Off' Command.");
+  char freqBuf[16];
+  snprintf(freqBuf, sizeof(freqBuf), "%.2f", SUBGHZ.getFrequency());
+  lv_label_set_text(ui_lblRCSWStatus, freqBuf); //"TX 'Off' Command.");
 
-  String FirstFive = lv_label_get_text(ui_lblBit0);
-  FirstFive += lv_label_get_text(ui_lblBit1);
-  FirstFive += lv_label_get_text(ui_lblBit2);
-  FirstFive += lv_label_get_text(ui_lblBit3);
-  FirstFive += lv_label_get_text(ui_lblBit4);
-
-  String SecondFive = lv_label_get_text(ui_lblBit5);
-  SecondFive += lv_label_get_text(ui_lblBit6);
-  SecondFive += lv_label_get_text(ui_lblBit7);
-  SecondFive += lv_label_get_text(ui_lblBit8);
-  SecondFive += lv_label_get_text(ui_lblBit9);
+  char firstFive[6], secondFive[6];
+  snprintf(firstFive, sizeof(firstFive), "%s%s%s%s%s",
+           lv_label_get_text(ui_lblBit0), lv_label_get_text(ui_lblBit1),
+           lv_label_get_text(ui_lblBit2), lv_label_get_text(ui_lblBit3),
+           lv_label_get_text(ui_lblBit4));
+  snprintf(secondFive, sizeof(secondFive), "%s%s%s%s%s",
+           lv_label_get_text(ui_lblBit5), lv_label_get_text(ui_lblBit6),
+           lv_label_get_text(ui_lblBit7), lv_label_get_text(ui_lblBit8),
+           lv_label_get_text(ui_lblBit9));
 
   SUBGHZ.enableTransmit();
-  SUBGHZ.switchOff(String(FirstFive).c_str(), String(SecondFive).c_str());
+  SUBGHZ.switchOff(firstFive, secondFive);
   SUBGHZ.disableTransmit();
 
-  // delay(1000);
-  String TxResult = "TX OFF: ";
-  TxResult += FirstFive;
-  TxResult += SecondFive;
+  char txBuf[32];
+  snprintf(txBuf, sizeof(txBuf), "TX OFF: %s%s", firstFive, secondFive);
+  lv_label_set_text(ui_lblRCSWStatus, txBuf);
 
-  Print_Debug(String(String("Send switch OFF, value: ") + String(FirstFive) + String(SecondFive) + String(" - Frequency: ") + String(String(lv_textarea_get_text(ui_txt10PoleFreq)).toFloat()) + String(" mHz")).c_str());
-  lv_label_set_text(ui_lblRCSWStatus, String(TxResult).c_str());
+  char dbgBuf[96];
+  snprintf(dbgBuf, sizeof(dbgBuf), "Send switch OFF, value: %s%s - Frequency: %.2f mHz", firstFive, secondFive, freq);
+  Print_Debug(dbgBuf);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1230,11 +1772,13 @@ void event_start_wifi_scan(lv_event_t *e)
   lv_dropdown_clear_options(ui_ddlWifiSSID);
 
   WiFi.disconnect(true);
+  WiFi.mode(WIFI_STA);  // Ensure STA mode (may be OFF after BLE/exit cleanup)
 
   WiFi.onEvent(WiFiEvent);
 
-  // Scan for Wi-Fi networks
-  int numNetworks = WiFi.scanNetworks(true);
+  // Start async WiFi scan (result checked via scanFinished flag)
+  WiFi.scanNetworks(true);
+  scanStartTime = millis();
 
   currentState = STATE_WIFI_SCAN;
 }
@@ -1250,10 +1794,13 @@ void event_refresh_wifi(lv_event_t *e)
 
   if (result > 0)
   {
-    // Clear the textarea
     lv_textarea_set_text(ui_txtWifiScanNetsFound, "");
 
     int index = lv_dropdown_get_selected(ui_ddlWifiSSID);
+
+    // Bounds check: dropdown selection must be within scan results
+    if (index >= result) index = 0;
+
     String ssid;
     int32_t rssi;
     uint8_t encryptionType;
@@ -1262,13 +1809,17 @@ void event_refresh_wifi(lv_event_t *e)
 
     WiFi.getNetworkInfo(index, ssid, encryptionType, rssi, bssid, channel);
 
-    String MAC = String(bssid[0], HEX) + ":" + String(bssid[1], HEX) + ":" + String(bssid[2], HEX) + ":" + String(bssid[3], HEX) + ":" + String(bssid[4], HEX) + ":" + String(bssid[5], HEX);
-    MAC.toUpperCase();
+    // Guard against NULL bssid pointer (can happen if scan data is stale)
+    if (bssid != NULL) {
+      char mac[18];
+      snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
+               bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
 
-    Print_Debug(String(String("View Network, SSID: ") + String(ssid) + String(" | MAC: ") + String(MAC) + String(" | RSSI: ") + String(rssi) + String(" dBm | Channel: ") + String(channel) + String(" | Encryption Type: ") + String(GetEncryptionTypeString(encryptionType))).c_str());
-
-    // Update the textarea
-    lv_textarea_add_text(ui_txtWifiScanNetsFound, String(String("SSID: ") + String(ssid) + String("\nMAC: ") + String(MAC) + String("\nRSSI: ") + String(rssi) + String(" dBm\n") + String("Channel: ") + String(channel) + String("\nEncryption Type: ") + String(GetEncryptionTypeString(encryptionType)) + String("\n\n")).c_str());
+      char infoBuf[256];
+      snprintf(infoBuf, sizeof(infoBuf), "SSID: %s\nMAC: %s\nRSSI: %d dBm\nChannel: %d\nEncryption Type: %s\n\n",
+               ssid.c_str(), mac, rssi, channel, GetEncryptionTypeString(encryptionType));
+      lv_textarea_add_text(ui_txtWifiScanNetsFound, infoBuf);
+    }
   }
 }
 
@@ -1287,6 +1838,18 @@ void event_exit_wifi_screen(lv_event_t *e)
 {
   Print_Debug("event_exit_wifi_screen");
 
+  // Stop any active Marauder feature
+  if (currentState == STATE_WIFI_SNIFF) {
+    WiFiMarauder::deinit();
+    currentState = STATE_IDLE;
+  } else if (currentState == STATE_BEACON_FLOOD) {
+    WiFiMarauder::deinitActive();
+    currentState = STATE_IDLE;
+  } else if (currentState == STATE_DEAUTH_RUN) {
+    WiFiMarauder::deinitActive();
+    currentState = STATE_IDLE;
+  }
+
   // delete old config
   WiFi.scanDelete();
   WiFi.removeEvent(WiFiEvent);
@@ -1298,10 +1861,76 @@ void event_exit_wifi_screen(lv_event_t *e)
 
 // ---------------------------------------------------------------------
 // void event_save_capture_rec_play(lv_event_t * e);
+// Show save dialog with editable filename
 // ---------------------------------------------------------------------
 void event_save_capture_rec_play(lv_event_t * e)
 {
-  //SUBGHZ.saveSamples();
+  Print_Debug("event_save_capture_rec_play");
+
+  extern int samplecount;
+  if (samplecount < 30) {
+    lv_label_set_text(ui_lblRecPlayStatus, "No capture data to save");
+    return;
+  }
+
+  // Generate default filename (without .sub extension)
+  char defaultName[64];
+  SUBGHZ.getDefaultFilename(defaultName, sizeof(defaultName));
+
+  // Populate the textbox and show the save panel
+  lv_textarea_set_text(ui_txtSaveFilename, defaultName);
+  lv_obj_clear_flag(ui_panelSaveCapture, LV_OBJ_FLAG_HIDDEN);
+
+  // Create keyboard attached to textarea
+  if (keyboardSaveCapture == NULL) {
+    keyboardSaveCapture = lv_keyboard_create(ui_panelSaveCapture);
+    lv_keyboard_set_textarea(keyboardSaveCapture, ui_txtSaveFilename);
+    lv_obj_set_size(keyboardSaveCapture, 320, 220);
+    lv_obj_align(keyboardSaveCapture, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_color(keyboardSaveCapture, lv_color_hex(0x1A1A2E), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(keyboardSaveCapture, lv_color_hex(0x333355), LV_PART_ITEMS);
+    lv_obj_set_style_text_color(keyboardSaveCapture, lv_color_hex(0xFFFFFF), LV_PART_ITEMS);
+  }
+  lv_obj_clear_flag(keyboardSaveCapture, LV_OBJ_FLAG_HIDDEN);
+}
+
+// ---------------------------------------------------------------------
+// void event_save_filename_input(lv_event_t * e);
+// Handles keyboard READY (save) and CANCEL (dismiss)
+// ---------------------------------------------------------------------
+void event_save_filename_input(lv_event_t * e)
+{
+  lv_event_code_t code = lv_event_get_code(e);
+
+  if (code == LV_EVENT_READY) {
+    // User pressed OK — save the file
+    const char *filename = lv_textarea_get_text(ui_txtSaveFilename);
+    if (strlen(filename) > 0) {
+      char fullname[64];
+      snprintf(fullname, sizeof(fullname), "%s.sub", filename);
+      SUBGHZ.saveCaptureToSD(fullname);
+    }
+
+    // Hide panel and keyboard
+    lv_obj_add_flag(ui_panelSaveCapture, LV_OBJ_FLAG_HIDDEN);
+    if (keyboardSaveCapture != NULL) {
+      lv_obj_del(keyboardSaveCapture);
+      keyboardSaveCapture = NULL;
+    }
+    lv_obj_clear_state(ui_txtSaveFilename, LV_STATE_FOCUSED);
+    lv_indev_reset(NULL, ui_txtSaveFilename);
+  }
+  else if (code == LV_EVENT_CANCEL) {
+    // User pressed X — cancel
+    lv_label_set_text(ui_lblRecPlayStatus, "Save cancelled");
+    lv_obj_add_flag(ui_panelSaveCapture, LV_OBJ_FLAG_HIDDEN);
+    if (keyboardSaveCapture != NULL) {
+      lv_obj_del(keyboardSaveCapture);
+      keyboardSaveCapture = NULL;
+    }
+    lv_obj_clear_state(ui_txtSaveFilename, LV_STATE_FOCUSED);
+    lv_indev_reset(NULL, ui_txtSaveFilename);
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -1310,9 +1939,7 @@ void event_save_capture_rec_play(lv_event_t * e)
 void fcnBleScreen(lv_event_t * e)
 {
   Print_Debug("event_load_screen_ble");
-lv_scr_load(ui_scrBLEApps);
-
-
+  lv_scr_load(ui_scrBLEApps);
 }
 
 // ---------------------------------------------------------------------
@@ -1320,48 +1947,320 @@ lv_scr_load(ui_scrBLEApps);
 // ---------------------------------------------------------------------
 void event_exit_ble_screen(lv_event_t * e)
 {
-  Print_Debug("event_exit_ble__screen");
-currentState=STATE_IDLE;
-lv_scr_load(ui_scrMain);
+  Print_Debug("event_exit_ble_screen");
 
+  if (currentState == STATE_SEND_BLESPAM) {
+    BLEstop();
+  }
+  if (currentState == STATE_BLE_SCAN_RUN || currentState == STATE_BLE_SCAN_INIT) {
+    BLEscanStop();
+  }
+  BLEdeinit();
+
+  // Reset BLE Spam tab
+  bleSpamCount = 0;
+  lv_label_set_text(ui_lblBLEStatus, "Ready");
+  lv_label_set_text(ui_lblBLECount, "Packets: 0");
+  lv_textarea_set_text(ui_txtBLELog, "");
+  lv_obj_clear_state(ui_btnBLEStart, LV_STATE_DISABLED);
+  lv_obj_add_state(ui_btnBLEStop, LV_STATE_DISABLED);
+
+  // Reset BLE Scan tab
+  lv_label_set_text(ui_lblBLEScanStatus, "Ready");
+  lv_obj_set_style_text_color(ui_lblBLEScanStatus, lv_color_hex(0xDEFF00), 0);
+  lv_label_set_text(ui_lblBLEScanCount, "Devices: 0");
+  lv_textarea_set_text(ui_txtBLEScanResults, "");
+  lv_obj_clear_state(ui_btnBLEScanStart, LV_STATE_DISABLED);
+  lv_obj_add_state(ui_btnBLEScanStop, LV_STATE_DISABLED);
+
+  currentState = STATE_IDLE;
+  lv_scr_load(ui_scrMain);
 }
 
 // ---------------------------------------------------------------------
 // void fcnBLEToggle(lv_event_t * e);
+// Legacy — switch replaced by START/STOP buttons
 // ---------------------------------------------------------------------
 void fcnBLEToggle(lv_event_t * e)
 {
-Print_Debug("event_start_stop_ble_app");
- 
- 
-  
+  // No longer used — BLE toggle replaced by START/STOP buttons
+}
 
-  if (currentState == STATE_IDLE)
-  {
-    // Start
-    //float freq = String(lv_textarea_get_text(ui_txt1101GenFreq)).toFloat();
-    BLEsetup();
-    lv_obj_add_state(ui_swBLEEnable, LV_STATE_CHECKED);
-    lv_label_set_text(ui_lblBLEEnable, "BLE ON");
-    //SUBGHZ.setFrequency(freq);
-    //SUBGHZ.enableTransmit();
-    currentState = STATE_SEND_BLESPAM;
-  }
-  else
-  {
-    // Stop
-    lv_obj_clear_state(ui_swBLEEnable, LV_STATE_CHECKED);
-    lv_label_set_text(ui_lblBLEEnable, "BLE OFF");
-    //SUBGHZ.disableTransmit();
-    currentState = STATE_IDLE;
-  }
-
+// ---------------------------------------------------------------------
+// void fcnTouchTunes(lv_event_t * e);
+// ---------------------------------------------------------------------
+void fcnTouchTunes(lv_event_t * e)
+{
+  Print_Debug("event_load_screen_touchtunes");
+  currentState = STATE_IDLE;
+  lv_scr_load(ui_scrTouchTunes);
 }
 
 // ---------------------------------------------------------------------
 // void fcnBLEType(lv_event_t * e);
+// Device type dropdown changed
 // ---------------------------------------------------------------------
 void fcnBLEType(lv_event_t * e)
 {
+  Print_Debug("fcnBLEType");
 
+  uint16_t sel = lv_dropdown_get_selected(ui_ddlWifiSSID1);
+
+  if (sel >= BLE_PAYLOAD_COUNT) {
+    bleRandomMode = true;
+  } else {
+    bleRandomMode = false;
+    if (bleInitialized) {
+      BLEsetPayload(sel);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// void event_ble_start(lv_event_t * e);
+// ---------------------------------------------------------------------
+void event_ble_start(lv_event_t * e)
+{
+  Print_Debug("event_ble_start");
+
+  if (currentState != STATE_IDLE) return;
+
+  // Read device selection from dropdown
+  uint16_t sel = lv_dropdown_get_selected(ui_ddlWifiSSID1);
+  if (sel >= BLE_PAYLOAD_COUNT) {
+    bleRandomMode = true;
+    bleCurrentDevice = 0;
+  } else {
+    bleRandomMode = false;
+    bleCurrentDevice = sel;
+  }
+
+  // Reset counters and update UI
+  bleSpamCount = 0;
+  lv_textarea_set_text(ui_txtBLELog, "");
+  lv_label_set_text(ui_lblBLEStatus, "Initializing BLE...");
+  lv_label_set_text(ui_lblBLECount, "Packets: 0");
+
+  lv_obj_add_state(ui_btnBLEStart, LV_STATE_DISABLED);
+  lv_obj_clear_state(ui_btnBLEStop, LV_STATE_DISABLED);
+
+  // Defer heavy BLE init to main loop on Core 1.
+  // BLEDevice::init() takes ~500ms and would trigger interrupt watchdog
+  // if called here (inside lv_timer_handler on Core 0).
+  currentState = STATE_BLE_INIT;
+}
+
+// ---------------------------------------------------------------------
+// void event_ble_stop(lv_event_t * e);
+// ---------------------------------------------------------------------
+void event_ble_stop(lv_event_t * e)
+{
+  Print_Debug("event_ble_stop");
+
+  BLEstop();
+
+  lv_label_set_text(ui_lblBLEStatus, "Stopped");
+  lv_obj_clear_state(ui_btnBLEStart, LV_STATE_DISABLED);
+  lv_obj_add_state(ui_btnBLEStop, LV_STATE_DISABLED);
+
+  currentState = STATE_IDLE;
+}
+
+// ---------------------------------------------------------------------
+// void event_ble_scan_start(lv_event_t * e);
+// Start BLE device scan — defers BLE init to Core 1
+// ---------------------------------------------------------------------
+void event_ble_scan_start(lv_event_t * e)
+{
+  Print_Debug("event_ble_scan_start");
+
+  if (currentState != STATE_IDLE) return;
+
+  // Read duration from dropdown: 0=5s, 1=10s, 2=30s
+  static const int durations[] = {5, 10, 30};
+  uint8_t sel = lv_dropdown_get_selected(ui_ddlBLEScanDuration);
+  bleScanDuration = (sel < 3) ? durations[sel] : 5;
+
+  lv_textarea_set_text(ui_txtBLEScanResults, "");
+  lv_label_set_text(ui_lblBLEScanStatus, "Initializing BLE...");
+  lv_label_set_text(ui_lblBLEScanCount, "Devices: 0");
+  lv_obj_add_state(ui_btnBLEScanStart, LV_STATE_DISABLED);
+  lv_obj_clear_state(ui_btnBLEScanStop, LV_STATE_DISABLED);
+
+  currentState = STATE_BLE_SCAN_INIT;
+}
+
+// ---------------------------------------------------------------------
+// void event_ble_scan_stop(lv_event_t * e);
+// Stop an ongoing BLE scan
+// ---------------------------------------------------------------------
+void event_ble_scan_stop(lv_event_t * e)
+{
+  Print_Debug("event_ble_scan_stop");
+
+  BLEscanStop();
+
+  lv_label_set_text(ui_lblBLEScanStatus, "Stopped");
+  lv_obj_clear_state(ui_btnBLEScanStart, LV_STATE_DISABLED);
+  lv_obj_add_state(ui_btnBLEScanStop, LV_STATE_DISABLED);
+
+  currentState = STATE_IDLE;
+}
+
+// ---------------------------------------------------------------------
+// void event_beacon_start(lv_event_t * e);
+// Start beacon flood — AP mode required
+// ---------------------------------------------------------------------
+void event_beacon_start(lv_event_t * e)
+{
+  Print_Debug("event_beacon_start");
+
+  if (currentState != STATE_IDLE) return;
+
+  int mode = lv_dropdown_get_selected(ui_ddlBeaconMode);
+
+  WiFiMarauder::initActive();
+  WiFiMarauder::startBeaconFlood(mode);
+
+  lv_label_set_text(ui_lblBeaconStatus, "Flooding...");
+  lv_obj_set_style_text_color(ui_lblBeaconStatus, lv_color_hex(0x00FF00), 0);
+  lv_label_set_text(ui_lblBeaconCount, "Beacons: 0");
+  lv_textarea_set_text(ui_txtBeaconLog, "");
+
+  lv_obj_add_state(ui_btnBeaconStart, LV_STATE_DISABLED);
+  lv_obj_clear_state(ui_btnBeaconStop, LV_STATE_DISABLED);
+
+  currentState = STATE_BEACON_FLOOD;
+}
+
+// ---------------------------------------------------------------------
+// void event_beacon_stop(lv_event_t * e);
+// Stop beacon flood
+// ---------------------------------------------------------------------
+void event_beacon_stop(lv_event_t * e)
+{
+  Print_Debug("event_beacon_stop");
+
+  WiFiMarauder::stopBeaconFlood();
+  WiFiMarauder::deinitActive();
+
+  lv_label_set_text(ui_lblBeaconStatus, "Stopped");
+  lv_obj_set_style_text_color(ui_lblBeaconStatus, lv_color_hex(0xFAFF00), 0);
+  lv_obj_clear_state(ui_btnBeaconStart, LV_STATE_DISABLED);
+  lv_obj_add_state(ui_btnBeaconStop, LV_STATE_DISABLED);
+
+  currentState = STATE_IDLE;
+}
+
+// ---------------------------------------------------------------------
+// void event_deauth_scan(lv_event_t * e);
+// Scan for deauth targets (uses STA mode temporarily)
+// ---------------------------------------------------------------------
+void event_deauth_scan(lv_event_t * e)
+{
+  Print_Debug("event_deauth_scan");
+
+  if (currentState != STATE_IDLE) return;
+
+  lv_label_set_text(ui_lblDeauthStatus, "Scanning...");
+  lv_obj_set_style_text_color(ui_lblDeauthStatus, lv_color_hex(0x00FFEB), 0);
+  lv_textarea_set_text(ui_txtDeauthLog, "Scanning for targets...\n");
+
+  currentState = STATE_DEAUTH_SCAN;
+}
+
+// ---------------------------------------------------------------------
+// void event_deauth_start(lv_event_t * e);
+// Start deauth attack on selected target — AP mode required
+// ---------------------------------------------------------------------
+void event_deauth_start(lv_event_t * e)
+{
+  Print_Debug("event_deauth_start");
+
+  if (currentState != STATE_IDLE) return;
+
+  int sel = lv_dropdown_get_selected(ui_ddlDeauthTarget);
+  if (sel < 0 || sel >= WiFiMarauder::targetCount) {
+    lv_label_set_text(ui_lblDeauthStatus, "No target!");
+    lv_obj_set_style_text_color(ui_lblDeauthStatus, lv_color_hex(0xFF0000), 0);
+    return;
+  }
+
+  WiFiMarauder::initActive();
+  WiFiMarauder::startDeauth(sel);
+
+  char buf[64];
+  snprintf(buf, sizeof(buf), "Target: %s", WiFiMarauder::targets[sel].ssid);
+  lv_label_set_text(ui_lblDeauthStatus, buf);
+  lv_obj_set_style_text_color(ui_lblDeauthStatus, lv_color_hex(0x00FF00), 0);
+  lv_label_set_text(ui_lblDeauthCount, "Packets: 0");
+  lv_textarea_set_text(ui_txtDeauthLog, "");
+
+  lv_obj_add_state(ui_btnDeauthStart, LV_STATE_DISABLED);
+  lv_obj_clear_state(ui_btnDeauthStop, LV_STATE_DISABLED);
+
+  currentState = STATE_DEAUTH_RUN;
+}
+
+// ---------------------------------------------------------------------
+// void event_deauth_stop(lv_event_t * e);
+// Stop deauth attack
+// ---------------------------------------------------------------------
+void event_deauth_stop(lv_event_t * e)
+{
+  Print_Debug("event_deauth_stop");
+
+  WiFiMarauder::stopDeauth();
+  WiFiMarauder::deinitActive();
+
+  lv_label_set_text(ui_lblDeauthStatus, "Stopped");
+  lv_obj_set_style_text_color(ui_lblDeauthStatus, lv_color_hex(0xFAFF00), 0);
+  lv_obj_clear_state(ui_btnDeauthStart, LV_STATE_DISABLED);
+  lv_obj_add_state(ui_btnDeauthStop, LV_STATE_DISABLED);
+
+  currentState = STATE_IDLE;
+}
+
+// ---------------------------------------------------------------------
+// void event_sniff_start(lv_event_t * e);
+// Start promiscuous mode packet sniffer
+// ---------------------------------------------------------------------
+void event_sniff_start(lv_event_t * e)
+{
+  Print_Debug("event_sniff_start");
+
+  if (currentState != STATE_IDLE) return;
+
+  WiFiMarauder::init();
+  WiFiMarauder::startSniff();
+
+  lv_label_set_text(ui_lblSniffStatus, "Sniffing...");
+  lv_obj_set_style_text_color(ui_lblSniffStatus, lv_color_hex(0x00FF00), 0);
+  lv_label_set_text(ui_lblSniffStats, "Mgmt:0  Data:0  Probe:0");
+  lv_label_set_text(ui_lblSniffChannel, "Ch: 1");
+  lv_textarea_set_text(ui_txtSniffLog, "");
+
+  lv_obj_add_state(ui_btnSniffStart, LV_STATE_DISABLED);
+  lv_obj_clear_state(ui_btnSniffStop, LV_STATE_DISABLED);
+
+  currentState = STATE_WIFI_SNIFF;
+}
+
+// ---------------------------------------------------------------------
+// void event_sniff_stop(lv_event_t * e);
+// Stop promiscuous mode packet sniffer
+// ---------------------------------------------------------------------
+void event_sniff_stop(lv_event_t * e)
+{
+  Print_Debug("event_sniff_stop");
+
+  WiFiMarauder::stopSniff();
+  WiFiMarauder::deinit();
+
+  lv_label_set_text(ui_lblSniffStatus, "Stopped");
+  lv_obj_set_style_text_color(ui_lblSniffStatus, lv_color_hex(0xFAFF00), 0);
+  lv_obj_clear_state(ui_btnSniffStart, LV_STATE_DISABLED);
+  lv_obj_add_state(ui_btnSniffStop, LV_STATE_DISABLED);
+
+  currentState = STATE_IDLE;
 }

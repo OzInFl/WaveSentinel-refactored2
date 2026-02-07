@@ -41,7 +41,7 @@ void ui_scrWifiApps_screen_init(void)
                               LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(lv_tabview_get_tab_btns(ui_tabWifiApps), 0,  LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_WifiScan = lv_tabview_add_tab(ui_tabWifiApps, "WIFI SCAN");
+    ui_WifiScan = lv_tabview_add_tab(ui_tabWifiApps, "SCAN");
 
     ui_btnWifiScannerScan = lv_btn_create(ui_WifiScan);
     lv_obj_set_width(ui_btnWifiScannerScan, 100);
@@ -130,7 +130,316 @@ void ui_scrWifiApps_screen_init(void)
     lv_obj_set_style_text_align(ui_lblWifiScannerJoin, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_lblWifiScannerJoin, &ui_font_Verdana18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_WifiApps = lv_tabview_add_tab(ui_tabWifiApps, "WIFI APPS");
+    // =====================================================================
+    // BEACON Tab — Beacon flood (AP mode, fake SSIDs)
+    // =====================================================================
+    ui_WifiBeacon = lv_tabview_add_tab(ui_tabWifiApps, "BEACON");
+
+    // --- Status label ---
+    ui_lblBeaconStatus = lv_label_create(ui_WifiBeacon);
+    lv_obj_set_width(ui_lblBeaconStatus, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblBeaconStatus, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblBeaconStatus, 0);
+    lv_obj_set_y(ui_lblBeaconStatus, -145);
+    lv_obj_set_align(ui_lblBeaconStatus, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblBeaconStatus, "Ready");
+    lv_obj_set_style_text_color(ui_lblBeaconStatus, lv_color_hex(0xFAFF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblBeaconStatus, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblBeaconStatus, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Mode dropdown ---
+    ui_ddlBeaconMode = lv_dropdown_create(ui_WifiBeacon);
+    lv_dropdown_set_options(ui_ddlBeaconMode, "Random SSIDs\nRickroll\nFunny Names");
+    lv_obj_set_width(ui_ddlBeaconMode, 200);
+    lv_obj_set_height(ui_ddlBeaconMode, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_ddlBeaconMode, 0);
+    lv_obj_set_y(ui_ddlBeaconMode, -105);
+    lv_obj_set_align(ui_ddlBeaconMode, LV_ALIGN_CENTER);
+    lv_obj_set_style_text_color(ui_ddlBeaconMode, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_ddlBeaconMode, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_ddlBeaconMode, lv_color_hex(0x222222), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_ddlBeaconMode, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Beacon count label ---
+    ui_lblBeaconCount = lv_label_create(ui_WifiBeacon);
+    lv_obj_set_width(ui_lblBeaconCount, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblBeaconCount, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblBeaconCount, 0);
+    lv_obj_set_y(ui_lblBeaconCount, -65);
+    lv_obj_set_align(ui_lblBeaconCount, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblBeaconCount, "Beacons: 0");
+    lv_obj_set_style_text_color(ui_lblBeaconCount, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblBeaconCount, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblBeaconCount, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Activity log textarea ---
+    ui_txtBeaconLog = lv_textarea_create(ui_WifiBeacon);
+    lv_obj_set_width(ui_txtBeaconLog, 289);
+    lv_obj_set_height(ui_txtBeaconLog, 120);
+    lv_obj_set_x(ui_txtBeaconLog, 0);
+    lv_obj_set_y(ui_txtBeaconLog, 20);
+    lv_obj_set_align(ui_txtBeaconLog, LV_ALIGN_CENTER);
+    lv_textarea_set_placeholder_text(ui_txtBeaconLog, "Activity log...");
+    lv_obj_set_style_text_color(ui_txtBeaconLog, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_txtBeaconLog, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtBeaconLog, &ui_font_Verdana11, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_txtBeaconLog, lv_color_hex(0x101010), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_txtBeaconLog, 200, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtBeaconLog, &ui_font_Verdana11, LV_PART_SELECTED | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtBeaconLog, &ui_font_Verdana11, LV_PART_TEXTAREA_PLACEHOLDER | LV_STATE_DEFAULT);
+
+    // --- START button (green) ---
+    ui_btnBeaconStart = lv_btn_create(ui_WifiBeacon);
+    lv_obj_set_width(ui_btnBeaconStart, 100);
+    lv_obj_set_height(ui_btnBeaconStart, 35);
+    lv_obj_set_x(ui_btnBeaconStart, -60);
+    lv_obj_set_y(ui_btnBeaconStart, 115);
+    lv_obj_set_align(ui_btnBeaconStart, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnBeaconStart, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnBeaconStart, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnBeaconStart, lv_color_hex(0x006600), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnBeaconStart, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lblBeaconStart = lv_label_create(ui_btnBeaconStart);
+    lv_obj_set_width(ui_lblBeaconStart, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblBeaconStart, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblBeaconStart, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblBeaconStart, "START");
+    lv_obj_set_style_text_font(ui_lblBeaconStart, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- STOP button (red, initially disabled) ---
+    ui_btnBeaconStop = lv_btn_create(ui_WifiBeacon);
+    lv_obj_set_width(ui_btnBeaconStop, 100);
+    lv_obj_set_height(ui_btnBeaconStop, 35);
+    lv_obj_set_x(ui_btnBeaconStop, 60);
+    lv_obj_set_y(ui_btnBeaconStop, 115);
+    lv_obj_set_align(ui_btnBeaconStop, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnBeaconStop, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnBeaconStop, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnBeaconStop, lv_color_hex(0x8B0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnBeaconStop, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_state(ui_btnBeaconStop, LV_STATE_DISABLED);
+
+    ui_lblBeaconStop = lv_label_create(ui_btnBeaconStop);
+    lv_obj_set_width(ui_lblBeaconStop, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblBeaconStop, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblBeaconStop, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblBeaconStop, "STOP");
+    lv_obj_set_style_text_font(ui_lblBeaconStop, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // =====================================================================
+    // DEAUTH Tab — Deauthentication attack
+    // =====================================================================
+    ui_WifiDeauth = lv_tabview_add_tab(ui_tabWifiApps, "DEAUTH");
+
+    // --- Status label ---
+    ui_lblDeauthStatus = lv_label_create(ui_WifiDeauth);
+    lv_obj_set_width(ui_lblDeauthStatus, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblDeauthStatus, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblDeauthStatus, 0);
+    lv_obj_set_y(ui_lblDeauthStatus, -145);
+    lv_obj_set_align(ui_lblDeauthStatus, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblDeauthStatus, "Ready");
+    lv_obj_set_style_text_color(ui_lblDeauthStatus, lv_color_hex(0xFAFF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblDeauthStatus, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblDeauthStatus, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- SCAN TARGETS button ---
+    ui_btnDeauthScan = lv_btn_create(ui_WifiDeauth);
+    lv_obj_set_width(ui_btnDeauthScan, 160);
+    lv_obj_set_height(ui_btnDeauthScan, 30);
+    lv_obj_set_x(ui_btnDeauthScan, 0);
+    lv_obj_set_y(ui_btnDeauthScan, -115);
+    lv_obj_set_align(ui_btnDeauthScan, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnDeauthScan, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnDeauthScan, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnDeauthScan, lv_color_hex(0x333366), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnDeauthScan, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lblDeauthScan = lv_label_create(ui_btnDeauthScan);
+    lv_obj_set_width(ui_lblDeauthScan, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblDeauthScan, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblDeauthScan, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblDeauthScan, "SCAN TARGETS");
+    lv_obj_set_style_text_font(ui_lblDeauthScan, &ui_font_Verdana11, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Target dropdown ---
+    ui_ddlDeauthTarget = lv_dropdown_create(ui_WifiDeauth);
+    lv_dropdown_set_options(ui_ddlDeauthTarget, "No targets scanned");
+    lv_obj_set_width(ui_ddlDeauthTarget, 289);
+    lv_obj_set_height(ui_ddlDeauthTarget, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_ddlDeauthTarget, 0);
+    lv_obj_set_y(ui_ddlDeauthTarget, -75);
+    lv_obj_set_align(ui_ddlDeauthTarget, LV_ALIGN_CENTER);
+    lv_obj_set_style_text_color(ui_ddlDeauthTarget, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_ddlDeauthTarget, &ui_font_Verdana11, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_ddlDeauthTarget, lv_color_hex(0x222222), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_ddlDeauthTarget, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Packet count label ---
+    ui_lblDeauthCount = lv_label_create(ui_WifiDeauth);
+    lv_obj_set_width(ui_lblDeauthCount, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblDeauthCount, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblDeauthCount, 0);
+    lv_obj_set_y(ui_lblDeauthCount, -40);
+    lv_obj_set_align(ui_lblDeauthCount, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblDeauthCount, "Packets: 0");
+    lv_obj_set_style_text_color(ui_lblDeauthCount, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblDeauthCount, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblDeauthCount, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Activity log textarea ---
+    ui_txtDeauthLog = lv_textarea_create(ui_WifiDeauth);
+    lv_obj_set_width(ui_txtDeauthLog, 289);
+    lv_obj_set_height(ui_txtDeauthLog, 90);
+    lv_obj_set_x(ui_txtDeauthLog, 0);
+    lv_obj_set_y(ui_txtDeauthLog, 25);
+    lv_obj_set_align(ui_txtDeauthLog, LV_ALIGN_CENTER);
+    lv_textarea_set_placeholder_text(ui_txtDeauthLog, "Activity log...");
+    lv_obj_set_style_text_color(ui_txtDeauthLog, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_txtDeauthLog, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtDeauthLog, &ui_font_Verdana11, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_txtDeauthLog, lv_color_hex(0x101010), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_txtDeauthLog, 200, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtDeauthLog, &ui_font_Verdana11, LV_PART_SELECTED | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtDeauthLog, &ui_font_Verdana11, LV_PART_TEXTAREA_PLACEHOLDER | LV_STATE_DEFAULT);
+
+    // --- START button (green) ---
+    ui_btnDeauthStart = lv_btn_create(ui_WifiDeauth);
+    lv_obj_set_width(ui_btnDeauthStart, 100);
+    lv_obj_set_height(ui_btnDeauthStart, 35);
+    lv_obj_set_x(ui_btnDeauthStart, -60);
+    lv_obj_set_y(ui_btnDeauthStart, 115);
+    lv_obj_set_align(ui_btnDeauthStart, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnDeauthStart, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnDeauthStart, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnDeauthStart, lv_color_hex(0x006600), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnDeauthStart, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lblDeauthStart = lv_label_create(ui_btnDeauthStart);
+    lv_obj_set_width(ui_lblDeauthStart, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblDeauthStart, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblDeauthStart, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblDeauthStart, "START");
+    lv_obj_set_style_text_font(ui_lblDeauthStart, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- STOP button (red, initially disabled) ---
+    ui_btnDeauthStop = lv_btn_create(ui_WifiDeauth);
+    lv_obj_set_width(ui_btnDeauthStop, 100);
+    lv_obj_set_height(ui_btnDeauthStop, 35);
+    lv_obj_set_x(ui_btnDeauthStop, 60);
+    lv_obj_set_y(ui_btnDeauthStop, 115);
+    lv_obj_set_align(ui_btnDeauthStop, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnDeauthStop, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnDeauthStop, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnDeauthStop, lv_color_hex(0x8B0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnDeauthStop, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_state(ui_btnDeauthStop, LV_STATE_DISABLED);
+
+    ui_lblDeauthStop = lv_label_create(ui_btnDeauthStop);
+    lv_obj_set_width(ui_lblDeauthStop, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblDeauthStop, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblDeauthStop, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblDeauthStop, "STOP");
+    lv_obj_set_style_text_font(ui_lblDeauthStop, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_WifiApps = lv_tabview_add_tab(ui_tabWifiApps, "SNIFF");
+
+    // =====================================================================
+    // SNIFF Tab — Passive WiFi monitor (promiscuous mode)
+    // =====================================================================
+    ui_WifiSniff = ui_WifiApps;  // Reuse existing tab object
+
+    // --- Status label ---
+    ui_lblSniffStatus = lv_label_create(ui_WifiSniff);
+    lv_obj_set_width(ui_lblSniffStatus, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblSniffStatus, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblSniffStatus, 0);
+    lv_obj_set_y(ui_lblSniffStatus, -145);
+    lv_obj_set_align(ui_lblSniffStatus, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblSniffStatus, "Ready");
+    lv_obj_set_style_text_color(ui_lblSniffStatus, lv_color_hex(0xFAFF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblSniffStatus, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblSniffStatus, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Packet stats label ---
+    ui_lblSniffStats = lv_label_create(ui_WifiSniff);
+    lv_obj_set_width(ui_lblSniffStats, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblSniffStats, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblSniffStats, 0);
+    lv_obj_set_y(ui_lblSniffStats, -120);
+    lv_obj_set_align(ui_lblSniffStats, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblSniffStats, "Mgmt:0  Data:0  Probe:0");
+    lv_obj_set_style_text_color(ui_lblSniffStats, lv_color_hex(0x00FFEB), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblSniffStats, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblSniffStats, &ui_font_Verdana11, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Channel label ---
+    ui_lblSniffChannel = lv_label_create(ui_WifiSniff);
+    lv_obj_set_width(ui_lblSniffChannel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblSniffChannel, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblSniffChannel, 0);
+    lv_obj_set_y(ui_lblSniffChannel, -100);
+    lv_obj_set_align(ui_lblSniffChannel, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblSniffChannel, "Ch: --");
+    lv_obj_set_style_text_color(ui_lblSniffChannel, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblSniffChannel, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblSniffChannel, &ui_font_Verdana11, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- Probe request log textarea ---
+    ui_txtSniffLog = lv_textarea_create(ui_WifiSniff);
+    lv_obj_set_width(ui_txtSniffLog, 289);
+    lv_obj_set_height(ui_txtSniffLog, 155);
+    lv_obj_set_x(ui_txtSniffLog, 0);
+    lv_obj_set_y(ui_txtSniffLog, 5);
+    lv_obj_set_align(ui_txtSniffLog, LV_ALIGN_CENTER);
+    lv_textarea_set_placeholder_text(ui_txtSniffLog, "Probe requests...");
+    lv_obj_set_style_text_color(ui_txtSniffLog, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_txtSniffLog, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtSniffLog, &ui_font_Verdana11, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_txtSniffLog, lv_color_hex(0x101010), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_txtSniffLog, 200, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtSniffLog, &ui_font_Verdana11, LV_PART_SELECTED | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_txtSniffLog, &ui_font_Verdana11, LV_PART_TEXTAREA_PLACEHOLDER | LV_STATE_DEFAULT);
+
+    // --- START button (green) ---
+    ui_btnSniffStart = lv_btn_create(ui_WifiSniff);
+    lv_obj_set_width(ui_btnSniffStart, 100);
+    lv_obj_set_height(ui_btnSniffStart, 35);
+    lv_obj_set_x(ui_btnSniffStart, -60);
+    lv_obj_set_y(ui_btnSniffStart, 115);
+    lv_obj_set_align(ui_btnSniffStart, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnSniffStart, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnSniffStart, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnSniffStart, lv_color_hex(0x006600), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnSniffStart, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lblSniffStart = lv_label_create(ui_btnSniffStart);
+    lv_obj_set_width(ui_lblSniffStart, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblSniffStart, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblSniffStart, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblSniffStart, "START");
+    lv_obj_set_style_text_font(ui_lblSniffStart, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // --- STOP button (red, initially disabled) ---
+    ui_btnSniffStop = lv_btn_create(ui_WifiSniff);
+    lv_obj_set_width(ui_btnSniffStop, 100);
+    lv_obj_set_height(ui_btnSniffStop, 35);
+    lv_obj_set_x(ui_btnSniffStop, 60);
+    lv_obj_set_y(ui_btnSniffStop, 115);
+    lv_obj_set_align(ui_btnSniffStop, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnSniffStop, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnSniffStop, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnSniffStop, lv_color_hex(0x8B0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnSniffStop, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_state(ui_btnSniffStop, LV_STATE_DISABLED);
+
+    ui_lblSniffStop = lv_label_create(ui_btnSniffStop);
+    lv_obj_set_width(ui_lblSniffStop, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblSniffStop, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblSniffStop, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblSniffStop, "STOP");
+    lv_obj_set_style_text_font(ui_lblSniffStop, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_btnWifiBack = lv_btn_create(ui_scrWifiApps);
     lv_obj_set_width(ui_btnWifiBack, 90);
@@ -156,5 +465,12 @@ void ui_scrWifiApps_screen_init(void)
     lv_obj_add_event_cb(ui_ddlWifiSSID, ui_event_ddlWifiSSID, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_btnWifiScannerJoin, ui_event_btnWifiScannerJoin, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_btnWifiBack, ui_event_btnWifiBack, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_btnSniffStart, event_sniff_start, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btnSniffStop, event_sniff_stop, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btnBeaconStart, event_beacon_start, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btnBeaconStop, event_beacon_stop, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btnDeauthScan, event_deauth_scan, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btnDeauthStart, event_deauth_start, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_btnDeauthStop, event_deauth_stop, LV_EVENT_CLICKED, NULL);
 
 }

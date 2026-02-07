@@ -15,21 +15,37 @@
 
 bool sdCardPresent = false;
 
-// Begin and Stop SD each time for less memory usage
+// Dedicated SPI bus for SD card (HSPI/SPI3) so it doesn't conflict with CC1101 on default SPI
+SPIClass sdSPI(HSPI);
+
+// SD is mounted/unmounted for each operation to save memory and
+// support hot-swap — card can be removed and re-inserted at any time.
 
 // ---------------------------------------------------------------------
 // bool sd_card_is_present()
+// Mounts the SD card. Handles hot-swap by ending any stale session
+// first and retrying once if the initial mount fails.
 // ---------------------------------------------------------------------
 bool sd_card_is_present()
 {
-    SPI.begin(SD_SCLK, SD_MISO, SD_MOSI);
-    //SPI.setFrequency(1000000);
+    // End any previous SD session to handle hot-swap cleanly.
+    // Without this, SD.begin() can fail if the card was removed and
+    // re-inserted while a previous session was still "open".
+    SD.end();
 
-    if (!SD.begin(SD_CS))
+    sdSPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
+
+    if (!SD.begin(SD_CS, sdSPI))
     {
-        Serial.println("Card Mount Failed");
-        sdCardPresent = false;
-        return sdCardPresent;
+        // Retry once — hot-swapped cards sometimes need a second attempt
+        // after the SPI bus is re-initialized.
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (!SD.begin(SD_CS, sdSPI))
+        {
+            Serial.println("Card Mount Failed");
+            sdCardPresent = false;
+            return sdCardPresent;
+        }
     }
 
     uint8_t cardType = SD.cardType();
@@ -56,6 +72,13 @@ void now_close_sd_card()
 // ---------------------------------------------------------------------
 // void refresh_sd_card_folder(lv_obj_t * obj, const char *dirname)
 // ---------------------------------------------------------------------
+// Extract just the filename from a path (handles ESP32 file.name() returning full paths)
+static const char* sd_basename(const char *path)
+{
+    const char *slash = strrchr(path, '/');
+    return (slash && slash[1]) ? slash + 1 : path;
+}
+
 void refresh_sd_card_folder(lv_obj_t *obj, const char *dirname)
 {
     Serial.printf("refresh_sd_card_folder: %s\n", dirname);
@@ -84,7 +107,7 @@ void refresh_sd_card_folder(lv_obj_t *obj, const char *dirname)
     {
         if (file.isDirectory())
         {
-                lv_dropdown_add_option(obj, file.name(), LV_DROPDOWN_POS_LAST);
+                lv_dropdown_add_option(obj, sd_basename(file.name()), LV_DROPDOWN_POS_LAST);
                 i++;
                 if (i >= MAX_CONTENT)
                 {
@@ -127,13 +150,18 @@ void refresh_sd_card_file(lv_obj_t *obj, const char *dirname, const char *extens
     File file = root.openNextFile();
     int i = 0;
 
+    size_t extLen = strlen(extension);
+
     while (file)
     {
         if (!file.isDirectory())
         {
-            if (strcmp(String(file.name()).substring(String(file.name()).length() - String(extension).length(), String(file.name()).length()).c_str(), extension) == 0)
+            const char *name = sd_basename(file.name());
+            size_t nameLen = strlen(name);
+            // Check if filename ends with the extension
+            if (nameLen >= extLen && strcmp(name + nameLen - extLen, extension) == 0)
             {
-                lv_dropdown_add_option(obj, file.name(), LV_DROPDOWN_POS_LAST);
+                lv_dropdown_add_option(obj, name, LV_DROPDOWN_POS_LAST);
                 i++;
                 if (i >= MAX_CONTENT)
                 {
@@ -172,7 +200,7 @@ bool read_sd_card_flipper_file(String filename)
     }
 
     // Reset Current
-    memset(tempSample, 0, sizeof(MAX_LENGHT_RAW_ARRAY));       
+    memset(tempSample, 0, sizeof(tempSample));
     tempSampleCount = 0;
 
     char *buf = (char *) malloc(MAX_LENGHT_RAW_ARRAY);

@@ -4,6 +4,7 @@
 #define LGFX_USE_V1
 
 #include <LovyanGFX.hpp>
+#include <esp_heap_caps.h>
 
 class LGFX : public lgfx::LGFX_Device
 {
@@ -118,7 +119,11 @@ static const uint16_t screenWidth = 320;
 static const uint16_t screenHeight = 480;
 
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t buf[screenWidth * screenHeight / 10];
+static lv_color_t *buf = NULL;
+
+// LVGL is NOT thread-safe. This mutex protects all LVGL calls
+// between Core 0 (refresh task) and Core 1 (main loop / event handlers).
+SemaphoreHandle_t lvgl_mutex = NULL;
 
 LGFX tft;
 
@@ -169,6 +174,8 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 // ---------------------------------------------------------------------
 void Init_Display()
 {
+  // Create LVGL thread-safety mutex
+  lvgl_mutex = xSemaphoreCreateMutex();
 
   lv_init();
 
@@ -179,7 +186,14 @@ void Init_Display()
   tft.init(); // Initialize LCD
   tft.setRotation(2);
 
-  lv_disp_draw_buf_init(&draw_buf, buf, NULL, screenWidth * screenHeight / 10);
+  // Allocate display buffer from DMA-capable internal RAM
+  const size_t buf_pixels = screenWidth * screenHeight / 10;
+  buf = (lv_color_t *)heap_caps_malloc(buf_pixels * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  if (!buf) {
+    // Fallback to regular malloc if DMA alloc fails
+    buf = (lv_color_t *)malloc(buf_pixels * sizeof(lv_color_t));
+  }
+  lv_disp_draw_buf_init(&draw_buf, buf, NULL, buf_pixels);
 
   /*Initialize the display*/
   static lv_disp_drv_t disp_drv;

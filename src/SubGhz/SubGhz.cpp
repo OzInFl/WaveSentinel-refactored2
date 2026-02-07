@@ -1,4 +1,9 @@
 #include "SubGhz.h"
+#include "ProtocolID.h"
+#include <SPI.h>
+
+// SD card uses a dedicated SPI bus (HSPI) defined in SDCard.h
+extern SPIClass sdSPI;
 
 // CC1101 Default Settings
 float CC1101_MHZ = 433.92;
@@ -10,6 +15,8 @@ int CC1101_PKT_FORMAT = 3; // Format of RX and TX data. 0=Normal mode, use FIFOs
                            //                           1=Synchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins
                            //                           2=Random TX test mode; sends random data using PN9 generator. Works as normal mode, setting 0 in RX
                            //                           3=Asynchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins
+int CC1101_PA = 12;        // TX power in dBm. Common values: -30,-20,-15,-10,-6,0,5,7,10,12
+int CC1101_SYNC_MODE = 0;  // 0=No sync, 1=16bit, 2=16/16, 3=30/32, 4-7=with carrier-sense
 CC1101Preset CC1101_PRESET = CUSTOM;
 
 // CC1101 - RCSW Apps Stuff
@@ -83,7 +90,7 @@ bool SubGhz::init()
 // ---------------------------------------------------------------------
 bool CheckReceived(void)
 {
-    delay(1);
+    vTaskDelay(1);  // Yield to RTOS scheduler instead of blocking delay
     if (samplecount >= minsample && micros() - lastTime > 100000)
     {
         receiverEnabled = false;
@@ -193,6 +200,46 @@ void SubGhz::setModulation(int modulation)
 }
 
 // ---------------------------------------------------------------------
+// void SubGhz::setRxBandwidth(float bw)
+// ---------------------------------------------------------------------
+void SubGhz::setRxBandwidth(float bw)
+{
+    CC1101_RX_BW = bw;
+}
+
+// ---------------------------------------------------------------------
+// void SubGhz::setDeviation(float dev)
+// ---------------------------------------------------------------------
+void SubGhz::setDeviation(float dev)
+{
+    CC1101_DEVIATION = dev;
+}
+
+// ---------------------------------------------------------------------
+// void SubGhz::setDataRate(float drate)
+// ---------------------------------------------------------------------
+void SubGhz::setDataRate(float drate)
+{
+    CC1101_DRATE = drate;
+}
+
+// ---------------------------------------------------------------------
+// void SubGhz::setPower(int pa)
+// ---------------------------------------------------------------------
+void SubGhz::setPower(int pa)
+{
+    CC1101_PA = pa;
+}
+
+// ---------------------------------------------------------------------
+// void SubGhz::setSyncMode(int mode)
+// ---------------------------------------------------------------------
+void SubGhz::setSyncMode(int mode)
+{
+    CC1101_SYNC_MODE = mode;
+}
+
+// ---------------------------------------------------------------------
 // void SubGhz::setFrequency(float freq)
 // ---------------------------------------------------------------------
 void SubGhz::setFrequency(float freq)
@@ -221,14 +268,14 @@ void SubGhz::enableRCSwitch()
     ELECHOUSE_cc1101.setDRate(CC1101_DRATE); // Set the Data Rate in kBaud. Value from 0.02 to 1621.83. Default is 99.97 kBaud!
     ELECHOUSE_cc1101.setRxBW(CC1101_RX_BW);  // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
     ELECHOUSE_cc1101.setDcFilterOff(1);
-    ELECHOUSE_cc1101.setSyncMode(0);
+    ELECHOUSE_cc1101.setSyncMode(CC1101_SYNC_MODE);
     ELECHOUSE_cc1101.setPktFormat(CC1101_PKT_FORMAT); // Format of RX and TX data. 0 = Normal mode, use FIFOs for RX and TX.
                                                       // 1 = Synchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
                                                       // 2 = Random TX mode; sends random data using PN9 generator. Used for test. Works as normal mode, setting 0 (00), in RX.
                                                       // 3 = Asynchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
                                                       // ELECHOUSE_cc1101.setSyncMode(3);        // Combined sync-word qualifier mode. 0 = No preamble/sync. 1 = 16 sync word bits detected. 2 = 16/16 sync word bits detected. 3 = 30/32 sync word bits detected. 4 = No preamble/sync, carrier-sense above threshold. 5 = 15/16 + carrier-sense above threshold. 6 = 16/16 + carrier-sense above threshold. 7 = 30/32 + carrier-sense above threshold.
 
-    ELECHOUSE_cc1101.setPA(12);
+    ELECHOUSE_cc1101.setPA(CC1101_PA);
 
     ELECHOUSE_cc1101.SetRx(); // set Receive on
     pinMode(CC1101_GDO0, INPUT);
@@ -250,8 +297,9 @@ void SubGhz::disableRCSwitch()
 // ---------------------------------------------------------------------
 void SubGhz::enableReceiver()
 {
-        // Reset Current
-    memset(sample, 0, sizeof(SAMPLE_SIZE));
+    // Reset capture buffer — sizeof(sample) gives full array size (4096 * sizeof(int)).
+    // BUG FIX: was sizeof(SAMPLE_SIZE) which is sizeof(int)=4, only zeroing 4 bytes!
+    memset(sample, 0, sizeof(sample));
     samplecount = 0;
 
     ELECHOUSE_cc1101.Init();
@@ -267,7 +315,7 @@ void SubGhz::enableReceiver()
     }
 
     // ELECHOUSE_cc1101.setDcFilterOff(1);
-    ELECHOUSE_cc1101.setSyncMode(0);
+    ELECHOUSE_cc1101.setSyncMode(CC1101_SYNC_MODE);
     ELECHOUSE_cc1101.setPktFormat(CC1101_PKT_FORMAT); // Format of RX and TX data. 0 = Normal mode, use FIFOs for RX and TX.
                                                       // 1 = Synchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
                                                       // 2 = Random TX mode; sends random data using PN9 generator. Used for test. Works as normal mode, setting 0 (00), in RX.
@@ -312,14 +360,14 @@ void SubGhz::enableTransmit()
     ELECHOUSE_cc1101.setDeviation(CC1101_DEVIATION);
     ELECHOUSE_cc1101.setDRate(CC1101_DRATE); // Set the Data Rate in kBaud. Value from 0.02 to 1621.83. Default is 99.97 kBaud!
     ELECHOUSE_cc1101.setDcFilterOff(1);
-    ELECHOUSE_cc1101.setSyncMode(0);
+    ELECHOUSE_cc1101.setSyncMode(CC1101_SYNC_MODE);
     ELECHOUSE_cc1101.setPktFormat(CC1101_PKT_FORMAT); // Format of RX and TX data. 0 = Normal mode, use FIFOs for RX and TX.
                                                       // 1 = Synchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
                                                       // 2 = Random TX mode; sends random data using PN9 generator. Used for test. Works as normal mode, setting 0 (00), in RX.
                                                       // 3 = Asynchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
                                                       // ELECHOUSE_cc1101.setSyncMode(3);        // Combined sync-word qualifier mode. 0 = No preamble/sync. 1 = 16 sync word bits detected. 2 = 16/16 sync word bits detected. 3 = 30/32 sync word bits detected. 4 = No preamble/sync, carrier-sense above threshold. 5 = 15/16 + carrier-sense above threshold. 6 = 16/16 + carrier-sense above threshold. 7 = 30/32 + carrier-sense above threshold.
 
-    ELECHOUSE_cc1101.setPA(12);
+    ELECHOUSE_cc1101.setPA(CC1101_PA);
 
     ELECHOUSE_cc1101.SetTx(); // set Transmit on
 
@@ -353,14 +401,14 @@ void SubGhz::enableScanner(float start, float stop)
     ELECHOUSE_cc1101.setDRate(CC1101_DRATE); // Set the Data Rate in kBaud. Value from 0.02 to 1621.83. Default is 99.97 kBaud!
     ELECHOUSE_cc1101.setRxBW(CC1101_RX_BW);  // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
     ELECHOUSE_cc1101.setDcFilterOff(1);
-    ELECHOUSE_cc1101.setSyncMode(0);
+    ELECHOUSE_cc1101.setSyncMode(CC1101_SYNC_MODE);
     ELECHOUSE_cc1101.setPktFormat(CC1101_PKT_FORMAT); // Format of RX and TX data. 0 = Normal mode, use FIFOs for RX and TX.
                                                       // 1 = Synchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
                                                       // 2 = Random TX mode; sends random data using PN9 generator. Used for test. Works as normal mode, setting 0 (00), in RX.
                                                       // 3 = Asynchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
                                                       // ELECHOUSE_cc1101.setSyncMode(3);        // Combined sync-word qualifier mode. 0 = No preamble/sync. 1 = 16 sync word bits detected. 2 = 16/16 sync word bits detected. 3 = 30/32 sync word bits detected. 4 = No preamble/sync, carrier-sense above threshold. 5 = 15/16 + carrier-sense above threshold. 6 = 16/16 + carrier-sense above threshold. 7 = 30/32 + carrier-sense above threshold.
 
-    ELECHOUSE_cc1101.setPA(12);
+    ELECHOUSE_cc1101.setPA(CC1101_PA);
 
     ELECHOUSE_cc1101.SetRx(); // Set Receive on
 }
@@ -378,7 +426,7 @@ void SubGhz::disableScanner()
 // ---------------------------------------------------------------------
 void SubGhz::switchOn(const char *sGroup, const char *sDevice)
 {
-    mySwitch.switchOn(String(sGroup).c_str(), String(sDevice).c_str());
+    mySwitch.switchOn(sGroup, sDevice);
 }
 
 // ---------------------------------------------------------------------
@@ -386,7 +434,7 @@ void SubGhz::switchOn(const char *sGroup, const char *sDevice)
 // ---------------------------------------------------------------------
 void SubGhz::switchOff(const char *sGroup, const char *sDevice)
 {
-    mySwitch.switchOff(String(sGroup).c_str(), String(sDevice).c_str());
+    mySwitch.switchOff(sGroup, sDevice);
 }
 
 // ---------------------------------------------------------------------
@@ -399,30 +447,34 @@ void SubGhz::sendLastSignal()
     mySwitch.send(tempValue, tempBitLength); // send Received value/bits
 }
 
-String SubGhz::generateRandomString(int length)
+void SubGhz::generateRandomString(char* buf, size_t bufSize, int length)
 {
+    static const char characters[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
-    const std::string characters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-    std::stringstream ss;
-    for (int i = 0; i < length; ++i) {
-        int randomIndex = std::rand() % characters.size();
-        char randomChar = characters[randomIndex];
-        ss << randomChar;
+    int maxLen = (length < (int)bufSize - 1) ? length : (int)bufSize - 1;
+    for (int i = 0; i < maxLen; ++i) {
+        buf[i] = characters[std::rand() % (sizeof(characters) - 1)];
     }
-
-    return String(ss.str().c_str());
+    buf[maxLen] = '\0';
 }
 
-String SubGhz::generateFilename(float frequency, int modulation, float bandwidth)
+void SubGhz::generateFilename(char* buf, size_t bufSize, float frequency, int modulation, float bandwidth)
 {
-    char filenameBuffer[100];
+    char rnd[9];
+    generateRandomString(rnd, sizeof(rnd), 8);
+    snprintf(buf, bufSize, "%d_%s_%d_%s.sub",
+             (int)(frequency * 100), modulation == 2 ? "AM" : "FM",
+             (int)bandwidth, rnd);
+}
 
-    sprintf(filenameBuffer, "%d_%s_%d_%s.sub", static_cast<int>(frequency * 100), modulation == 2 ? "AM" : "FM", static_cast<int>(bandwidth),
-            generateRandomString(8).c_str());
-
-    return String(filenameBuffer);
+void SubGhz::getDefaultFilename(char* buf, size_t bufSize)
+{
+    char rnd[9];
+    generateRandomString(rnd, sizeof(rnd), 8);
+    snprintf(buf, bufSize, "%d_%s_%d_%s",
+             (int)(CC1101_MHZ * 100), CC1101_MODULATION == 2 ? "AM" : "FM",
+             (int)CC1101_RX_BW, rnd);
 }
 
 
@@ -435,26 +487,12 @@ bool SubGhz::CaptureLoop()
 {
     if (CheckReceived())
     {
-        Print_Debug("CaptureLoop()");
-
-        String rawString = "";
-
-        for (int i = 1; i < samplecount; i++)
-        {
-            rawString += sample[i];
-            rawString += ",";
-        }
-
-        Print_Debug(String(String("New Signal RAW: \n") + String(rawString)).c_str());
-
-        rawString = "";
-
+        char dbg[64];
+        snprintf(dbg, sizeof(dbg), "CaptureLoop() - New Signal RAW, %d samples", samplecount);
+        Print_Debug(dbg);
         return true;
     }
-    else
-    {
-        return false;
-    }
+    return false;
 }
 
 bool SubGhz::CaptureLoopSD()
@@ -471,11 +509,14 @@ bool SubGhz::CaptureLoopSD()
             rawSignal << sample[i];
         }
         
-        if (SD.begin(SD_CS))
+        sdSPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
+        if (SD.begin(SD_CS, sdSPI))
     {
-        String filename = generateFilename(CC1101_MHZ, CC1101_MODULATION, CC1101_RX_BW);
-        String fullPath = "/subghz/captures/" + filename; 
-        outputFile = SD.open(fullPath.c_str(), "w");
+        char filename[64];
+        generateFilename(filename, sizeof(filename), CC1101_MHZ, CC1101_MODULATION, CC1101_RX_BW);
+        char fullPath[96];
+        snprintf(fullPath, sizeof(fullPath), "/captures/%s", filename);
+        outputFile = SD.open(fullPath, FILE_WRITE, true);
         if (outputFile) {
             std::vector<byte> customPresetData;
             if (CC1101_PRESET == CUSTOM) {
@@ -493,6 +534,7 @@ bool SubGhz::CaptureLoopSD()
                 customPresetData.insert(customPresetData.end(), paTable.begin(), paTable.end());
             }
             FlipperSubFile::generateRaw(outputFile, CC1101_PRESET, customPresetData, rawSignal, CC1101_MHZ);
+            outputFile.flush();
             outputFile.close();
         } else {
             // @todo: Log/send error
@@ -508,7 +550,93 @@ bool SubGhz::CaptureLoopSD()
 }
 ////----Alt ORig
 
+// ---------------------------------------------------------------------
+// bool SubGhz::saveCaptureToSD()
+// Saves already-captured sample[] data to SD card in Flipper .sub format
+// ---------------------------------------------------------------------
+bool SubGhz::saveCaptureToSD()
+{
+    char filename[64];
+    generateFilename(filename, sizeof(filename), CC1101_MHZ, CC1101_MODULATION, CC1101_RX_BW);
+    return saveCaptureToSD(filename);
+}
 
+bool SubGhz::saveCaptureToSD(const char* customFilename)
+{
+    if (samplecount < minsample) {
+        lv_label_set_text(ui_lblRecPlayStatus, "No capture data to save");
+        return false;
+    }
+
+    lv_label_set_text(ui_lblRecPlayStatus, "Saving to SD...");
+    vTaskDelay(1); // yield to let refresh task update display
+
+    // Init SD card on dedicated HSPI bus (separate from CC1101's default SPI)
+    sdSPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
+
+    if (!SD.begin(SD_CS, sdSPI)) {
+        lv_label_set_text(ui_lblRecPlayStatus, "SD Card not found");
+        return false;
+    }
+
+    // Create directory if it doesn't exist
+    if (!SD.exists("/captures")) {
+        SD.mkdir("/captures");
+    }
+
+    char fullPath[96];
+    snprintf(fullPath, sizeof(fullPath), "/captures/%s", customFilename);
+
+    File outputFile = SD.open(fullPath, FILE_WRITE, true);
+    if (!outputFile) {
+        Serial.printf("Failed to create file: %s\n", fullPath);
+        lv_label_set_text(ui_lblRecPlayStatus, "Failed to create file");
+        SD.end();
+        return false;
+    }
+
+    // Build raw signal data in Flipper format
+    std::stringstream rawSignal;
+    for (int i = 1; i < samplecount; i++) {
+        if (i > 1) rawSignal << " ";
+        if (i % 2 == 0) {
+            rawSignal << "-" << sample[i];
+        } else {
+            rawSignal << sample[i];
+        }
+        if (i % 512 == 0) {
+            vTaskDelay(1);
+        }
+    }
+
+    // Build custom preset data if needed
+    std::vector<byte> customPresetData;
+    if (CC1101_PRESET == CUSTOM) {
+        customPresetData.insert(customPresetData.end(), {
+            CC1101_MDMCFG4, ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG4),
+            CC1101_MDMCFG3, ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG3),
+            CC1101_MDMCFG2, ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG2),
+            CC1101_DEVIATN, ELECHOUSE_cc1101.SpiReadReg(CC1101_DEVIATN),
+            CC1101_FREND0,  ELECHOUSE_cc1101.SpiReadReg(CC1101_FREND0),
+            0x00, 0x00
+        });
+
+        std::array<byte, 8> paTable;
+        ELECHOUSE_cc1101.SpiReadBurstReg(0x3E, paTable.data(), paTable.size());
+        customPresetData.insert(customPresetData.end(), paTable.begin(), paTable.end());
+    }
+
+    FlipperSubFile::generateRaw(outputFile, CC1101_PRESET, customPresetData, rawSignal, CC1101_MHZ);
+    outputFile.flush();
+    Serial.printf("File written: %s (%lu bytes)\n", fullPath, (unsigned long)outputFile.size());
+    outputFile.close();
+    SD.end();
+
+    char statusBuf[80];
+    snprintf(statusBuf, sizeof(statusBuf), "Saved: %s", customFilename);
+    lv_label_set_text(ui_lblRecPlayStatus, statusBuf);
+    return true;
+}
 
 // ---------------------------------------------------------------------
 // bool SubGhz::ProtAnalyzerLoop()
@@ -517,7 +645,10 @@ bool SubGhz::ProtAnalyzerLoop()
 {
     if (mySwitch.available())
     {
-        Print_Debug(String(String("New Signal Received, value: ") + String(mySwitch.getReceivedValue()) + String(" (") + String(mySwitch.getReceivedBitlength()) + String("bit) - Protocol: ") + String(mySwitch.getReceivedProtocol())).c_str());
+        char dbg[128];
+        snprintf(dbg, sizeof(dbg), "New Signal Received, value: %lu (%dbit) - Protocol: %d",
+                 mySwitch.getReceivedValue(), mySwitch.getReceivedBitlength(), mySwitch.getReceivedProtocol());
+        Print_Debug(dbg);
         return true;
     }
 
@@ -562,8 +693,7 @@ void SubGhz::ScannerLoop()
     if (freq > stop_freq)
     {
         freq = start_freq;
-        String threshVal = lv_label_get_text(ui_lblThreshold);
-        int thVal = threshVal.toInt();
+        int thVal = atoi(lv_label_get_text(ui_lblThreshold));
 
         // map(threshVal,-40,-80,40,80);
         if (mark_rssi > thVal)
@@ -572,7 +702,9 @@ void SubGhz::ScannerLoop()
 
             if (fr == compare_freq)
             {
-                lv_textarea_add_text(ui_txtScannerData, String(String(mark_freq) + String(" MHZ | RSSI: ") + String(mark_rssi) + String("\n\0")).c_str());
+                char scanBuf[48];
+                snprintf(scanBuf, sizeof(scanBuf), "%.2f MHZ | RSSI: %d\n", mark_freq, mark_rssi);
+                lv_textarea_add_text(ui_txtScannerData, scanBuf);
                 mark_rssi = -100;
                 compare_freq = 0;
                 mark_freq = 0;
@@ -611,24 +743,44 @@ void SubGhz::showResultProtAnalyzer()
 
     const char *b = SubGhz::dec2binWzerofill(tempValue, tempBitLength);
 
-    lv_textarea_set_text(ui_txtProtAnaReceived, String(tempValue).c_str());                      // Decimal Value
-    lv_textarea_set_text(ui_txtProtAnaBitLength, String(tempBitLength).c_str());                 // Bit Legnth
-    lv_textarea_set_text(ui_txtProtAnaBinary, String(b).c_str());                                // Binary
-    lv_textarea_set_text(ui_txtProtAnaPulsLen, String(tempDelay).c_str());                       // Pulse Length
-    lv_textarea_set_text(ui_txtProtAnaProtAnaTriState, String(SubGhz::bin2tristate(b)).c_str()); // TriState
-    lv_textarea_set_text(ui_txtProtAnaProtocol, String(tempProtocol).c_str());                   // Protocol
+    char numBuf[16];
+    snprintf(numBuf, sizeof(numBuf), "%ld", tempValue);
+    lv_textarea_set_text(ui_txtProtAnaReceived, numBuf);                                         // Decimal Value
+    snprintf(numBuf, sizeof(numBuf), "%d", tempBitLength);
+    lv_textarea_set_text(ui_txtProtAnaBitLength, numBuf);                                        // Bit Length
+    lv_textarea_set_text(ui_txtProtAnaBinary, b);                                                // Binary
+    snprintf(numBuf, sizeof(numBuf), "%d", tempDelay);
+    lv_textarea_set_text(ui_txtProtAnaPulsLen, numBuf);                                          // Pulse Length
+    lv_textarea_set_text(ui_txtProtAnaProtAnaTriState, SubGhz::bin2tristate(b));                 // TriState
+    snprintf(numBuf, sizeof(numBuf), "%d", tempProtocol);
+    lv_textarea_set_text(ui_txtProtAnaProtocol, numBuf);                                         // Protocol
 
-    String rawString = "";
-
-    for (unsigned int i = 0; i <= tempBitLength * 2; i++)
-    {
-        rawString += mySwitch.getReceivedRawdata()[i];
-        rawString += ",";
+    // Build raw data using pre-sized buffer instead of String concatenation
+    unsigned int rawCount = tempBitLength * 2 + 2;
+    size_t bufSize = rawCount * 12 + 1;
+    char *rawBuf = (char *)malloc(bufSize);
+    if (rawBuf) {
+        size_t pos = 0;
+        for (unsigned int i = 0; i < rawCount && pos < bufSize - 12; i++)
+        {
+            pos += snprintf(rawBuf + pos, bufSize - pos, "%u,", mySwitch.getReceivedRawdata()[i]);
+        }
+        lv_textarea_set_text(ui_txtProtAnaResults, rawBuf);
+        free(rawBuf);
     }
 
-    lv_textarea_set_text(ui_txtProtAnaResults, String(rawString).c_str());
-
-    rawString = "";
+    // Protocol identification from raw timing data
+    int *rawSamples = (int *)malloc(rawCount * sizeof(int));
+    if (rawSamples) {
+        for (unsigned int i = 0; i < rawCount; i++) {
+            rawSamples[i] = (int)mySwitch.getReceivedRawdata()[i];
+        }
+        ProtocolMatch match = identifyProtocol(rawSamples, rawCount);
+        char protBuf[48];
+        snprintf(protBuf, sizeof(protBuf), "Protocol: %s", match.name);
+        lv_label_set_text(ui_lblProtAnaProtID, protBuf);
+        free(rawSamples);
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -639,24 +791,33 @@ void SubGhz::showResultRecPlay()
     lv_obj_clear_flag(ui_indGreen, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_indRed, LV_OBJ_FLAG_HIDDEN);
 
-    Print_Debug(String(String("New Signal RAW, Sample Count: ") + String(samplecount)).c_str());
+    char dbg[64];
+    snprintf(dbg, sizeof(dbg), "New Signal RAW, Sample Count: %d", samplecount);
+    Print_Debug(dbg);
 
-    String rawString = "";
-
-    for (int i = 1; i < samplecount; i++)
-    {
-        Printn_Debug(String(sample[i]).c_str());
-        Printn_Debug(",");
-        rawString += sample[i];
-        rawString += ",";
+    // Build raw data string using a pre-sized buffer instead of String concatenation
+    // Max ~12 chars per sample ("−2147483648,") * samplecount
+    size_t bufSize = (size_t)samplecount * 12 + 1;
+    char *rawBuf = (char *)malloc(bufSize);
+    if (rawBuf) {
+        size_t pos = 0;
+        for (int i = 1; i < samplecount && pos < bufSize - 12; i++)
+        {
+            pos += snprintf(rawBuf + pos, bufSize - pos, "%d,", sample[i]);
+        }
+        lv_textarea_set_text(ui_txtRawData, rawBuf);
+        free(rawBuf);
     }
 
-    lv_textarea_set_text(ui_txtRawData, String(rawString).c_str());
+    // Identify protocol from captured samples
+    ProtocolMatch match = identifyProtocol(sample, samplecount);
+    char protBuf[48];
+    snprintf(protBuf, sizeof(protBuf), "Protocol: %s", match.name);
+    lv_label_set_text(ui_lblProtocolID, protBuf);
 
-    lv_label_set_text(ui_lblRecPlayStatus, String("Capture Complete | Sample: " + String(samplecount)).c_str());
-    Print_Debug(String("Capture Complete | Sample: " + String(samplecount)).c_str());
-
-    rawString = "";
+    snprintf(dbg, sizeof(dbg), "Capture Complete | Sample: %d", samplecount);
+    lv_label_set_text(ui_lblRecPlayStatus, dbg);
+    Print_Debug(dbg);
 }
 
 // ---------------------------------------------------------------------
@@ -797,7 +958,9 @@ bool SubGhz::sendCapture()
 
     SubGhz::disableTransmit();
 
-    lv_label_set_text(ui_lblRecPlayStatus, String("Playback Complete ! Sample: " + String(samplecount)).c_str());
+    char pbBuf[48];
+    snprintf(pbBuf, sizeof(pbBuf), "Playback Complete ! Sample: %d", samplecount);
+    lv_label_set_text(ui_lblRecPlayStatus, pbBuf);
 
     return true;
 }

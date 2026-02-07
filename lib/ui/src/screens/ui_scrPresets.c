@@ -160,10 +160,53 @@ void ui_scrPresets_screen_init(void)
     lv_label_set_text(ui_lblPresetTesla, "TESLA\nUS/EU");
     lv_obj_set_style_text_font(ui_lblPresetTesla, &ui_font_Verdana16, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    ui_btnPresetRefresh = lv_btn_create(ui_scrPresets);
+    lv_obj_set_width(ui_btnPresetRefresh, 90);
+    lv_obj_set_height(ui_btnPresetRefresh, 35);
+    lv_obj_set_x(ui_btnPresetRefresh, -70);
+    lv_obj_set_y(ui_btnPresetRefresh, 150);
+    lv_obj_set_align(ui_btnPresetRefresh, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnPresetRefresh, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnPresetRefresh, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnPresetRefresh, lv_color_hex(0xFFF700), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnPresetRefresh, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lblPresetRefresh = lv_label_create(ui_btnPresetRefresh);
+    lv_obj_set_width(ui_lblPresetRefresh, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblPresetRefresh, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblPresetRefresh, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblPresetRefresh, "REFRESH");
+    lv_obj_set_style_text_color(ui_lblPresetRefresh, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblPresetRefresh, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblPresetRefresh, &ui_font_Verdana16, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_btnPresetDelete = lv_btn_create(ui_scrPresets);
+    lv_obj_set_width(ui_btnPresetDelete, 90);
+    lv_obj_set_height(ui_btnPresetDelete, 35);
+    lv_obj_set_x(ui_btnPresetDelete, 70);
+    lv_obj_set_y(ui_btnPresetDelete, 150);
+    lv_obj_set_align(ui_btnPresetDelete, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_btnPresetDelete, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_clear_flag(ui_btnPresetDelete, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ui_btnPresetDelete, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_btnPresetDelete, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(ui_btnPresetDelete, lv_color_hex(0x00AFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(ui_btnPresetDelete, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(ui_btnPresetDelete, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lblPresetDelete = lv_label_create(ui_btnPresetDelete);
+    lv_obj_set_width(ui_lblPresetDelete, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblPresetDelete, LV_SIZE_CONTENT);
+    lv_obj_set_align(ui_lblPresetDelete, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblPresetDelete, "DELETE");
+    lv_obj_set_style_text_font(ui_lblPresetDelete, &ui_font_Verdana16, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     lv_obj_add_event_cb(ui_btnPresetsBack, ui_event_btnPresetsBack, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_ddPresetsFolder, ui_event_ddPresetsFolder, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_ddPresetsFile, ui_event_ddPresetsFile, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_btnPresetTx, ui_event_btnPresetTx, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_btnPresetTesla, ui_event_btnPresetTesla, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_btnPresetDelete, ui_event_btnPresetDelete, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_btnPresetRefresh, ui_event_btnPresetRefresh, LV_EVENT_ALL, NULL);
 
 }

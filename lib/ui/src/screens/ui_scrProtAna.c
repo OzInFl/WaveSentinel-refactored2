@@ -338,6 +338,19 @@ void ui_scrProtAna_screen_init(void)
     lv_label_set_text(ui_lblProtanaReplay, "REPLAY");
     lv_obj_set_style_text_font(ui_lblProtanaReplay, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    // Protocol Identification label (between replay button row and back button)
+    ui_lblProtAnaProtID = lv_label_create(ui_scrProtAna);
+    lv_obj_set_width(ui_lblProtAnaProtID, 280);
+    lv_obj_set_height(ui_lblProtAnaProtID, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblProtAnaProtID, 0);
+    lv_obj_set_y(ui_lblProtAnaProtID, 196);
+    lv_obj_set_align(ui_lblProtAnaProtID, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lblProtAnaProtID, "");
+    lv_obj_set_style_text_color(ui_lblProtAnaProtID, lv_color_hex(0x00FFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_lblProtAnaProtID, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(ui_lblProtAnaProtID, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lblProtAnaProtID, &ui_font_Verdana14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     ui_lblProtAnaPreset = lv_label_create(ui_scrProtAna);
     lv_obj_set_width(ui_lblProtAnaPreset, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_lblProtAnaPreset, LV_SIZE_CONTENT);    /// 1

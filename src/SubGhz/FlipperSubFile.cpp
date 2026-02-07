@@ -1,5 +1,5 @@
 #include "FlipperSubFile.h"
-#include "lvgl.h"
+#include <Arduino.h>
 
 const std::map<CC1101Preset, std::string> FlipperSubFile::presetMapping = {
     {AM270, "FuriHalSubGhzPresetOok270Async"},
@@ -31,7 +31,7 @@ void FlipperSubFile::writeHeader(File& file, float frequency) {
 
 void FlipperSubFile::writePresetInfo(File& file, const CC1101Preset& presetName, const std::vector<byte>& customPresetData) {
     file.print("Preset: ");
-    file.println(getPresetName(presetName));
+    file.println(getPresetName(presetName).c_str());
     if (presetName == CC1101Preset::CUSTOM) {
         file.println("Custom_preset_module: CC1101");
         file.print("Custom_preset_data: ");
@@ -70,7 +70,7 @@ void FlipperSubFile::writeRawProtocolData(File& file, std::stringstream& samples
                 line += buffer[i];
             }
             file.println(line.c_str());
-            lv_timer_handler(); // keep LVGL alive
+            vTaskDelay(1); // yield to let refresh task update display
             buffer.clear();
             tokenCount = 0;
             file.print("RAW_Data: ");

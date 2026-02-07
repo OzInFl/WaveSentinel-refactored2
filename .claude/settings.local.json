@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"dir \"\"%USERPROFILE%\\\\.platformio\"\" /b 2>nul && dir \"\"%USERPROFILE%\\\\.platformio\\\\penv\\\\Scripts\"\" /b 2>nul\")",
+      "Bash(cmd /c \"where /r \"\"%USERPROFILE%\"\" pio.exe 2>nul & where /r \"\"C:\\\\Users\\\\netop\"\" platformio.exe 2>nul & where /r \"\"C:\\\\Users\\\\netop\\\\.platformio\"\" pio.exe 2>nul\")",
+      "Bash(cmd /c \"python -m platformio --version 2>nul || pip show platformio 2>nul\")",
+      "Bash(gh api:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(where:*)",
+      "Bash(cmd /c \"where pio\")",
+      "Bash(cmd /c \"dir /s /b C:\\\\Users\\\\netop\\\\.platformio\\\\penv\\\\Scripts\\\\pio.exe\")",
+      "Bash(cmd /c:*)",
+      "Bash(C:\\\\Users\\\\netop\\\\.platformio\\\\penv\\\\Scripts\\\\platformio.exe run:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(unzip:*)",
+      "Bash(platformio run:*)",
+      "Bash(python -m platformio run:*)",
+      "Bash(C:Usersnetop.platformiopenvScriptspio.exe run)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(powershell -Command \"Add-Type -Assembly System.IO.Compression.FileSystem; $z = [System.IO.Compression.ZipFile]::OpenRead\\(''ESP32Marauder-master.zip''\\); $z.Entries | Where-Object { $_Name -like ''*.h'' -or $_Name -like ''*.cpp'' } | Select-Object -First 80 -ExpandProperty FullName\")",
+      "Bash(C:/Users/netop/.platformio/penv/Scripts/pio.exe run:*)"
+    ]
+  }
+}

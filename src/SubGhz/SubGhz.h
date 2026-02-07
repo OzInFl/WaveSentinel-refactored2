@@ -29,8 +29,8 @@ private:
   static char *dec2binWzerofill(unsigned long Dec, unsigned int bitLength);
   void send_byte(uint8_t dataByte);
   
-  String generateRandomString(int length);
-  String generateFilename(float frequency, int modulation, float bandwidth);
+  void generateRandomString(char* buf, size_t bufSize, int length);
+  void generateFilename(char* buf, size_t bufSize, float frequency, int modulation, float bandwidth);
 
 public:
   bool init();
@@ -41,6 +41,12 @@ public:
 
   void setFrequency(float freq);
   float getFrequency();
+
+  void setRxBandwidth(float bw);
+  void setDeviation(float dev);
+  void setDataRate(float drate);
+  void setPower(int pa);
+  void setSyncMode(int mode);
 
   void enableRCSwitch();
   void disableRCSwitch();
@@ -68,6 +74,9 @@ public:
 
   bool CaptureLoop();
   bool CaptureLoopSD();
+  bool saveCaptureToSD();
+  bool saveCaptureToSD(const char* customFilename);
+  void getDefaultFilename(char* buf, size_t bufSize);
   bool ProtAnalyzerLoop();
   void ScannerLoop();
   void GeneratorLoop();
