@@ -59,7 +59,7 @@ static lv_obj_t *tt_createBtn(lv_obj_t *parent, int x, int y, int w, int h,
     lv_obj_t *lbl = lv_label_create(btn);
     lv_obj_set_align(lbl, LV_ALIGN_CENTER);
     lv_label_set_text(lbl, text);
-    lv_obj_set_style_text_font(lbl, &ui_font_Verdana16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_obj_set_user_data(btn, (void *)(uintptr_t)cmd);

@@ -128,7 +128,7 @@ static lv_obj_t *remote_createBtn(lv_obj_t *parent, int x, int y, int w, int h,
     lv_obj_t *lbl = lv_label_create(btn);
     lv_obj_set_align(lbl, LV_ALIGN_CENTER);
     lv_label_set_text(lbl, text);
-    lv_obj_set_style_text_font(lbl, &ui_font_Verdana16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
 
     lv_obj_set_user_data(btn, (void *)(uintptr_t)btnId);
@@ -672,8 +672,8 @@ static void remote_screen_init(void) {
 
     // ======================= TAB VIEW =======================
     lv_obj_t *tabview = lv_tabview_create(ui_scrRemote, LV_DIR_TOP, 30);
-    lv_obj_set_pos(tabview, 0, 86);
-    lv_obj_set_size(tabview, 320, 362);
+    lv_obj_set_pos(tabview, 0, 96);
+    lv_obj_set_size(tabview, 320, 352);
     lv_obj_set_style_bg_opa(tabview, 0, LV_PART_MAIN);
 
     lv_obj_t *tab_btns = lv_tabview_get_tab_btns(tabview);
@@ -703,7 +703,7 @@ static void remote_screen_init(void) {
     int y, bw = 85, bh = 48;
 
     // Row 1: POWER, MUTE, LAST, EXIT
-    y = 2;
+    y = 28;
     remote_createBtn(tabNumbers, -115, y, 68, 38, "POWER", 0xCC0000, RB_POWER);
     remote_createBtn(tabNumbers,  -42, y, 68, 38, "MUTE",  0x994400, RB_MUTE);
     remote_createBtn(tabNumbers,   42, y, 68, 38, "LAST",  0x333366, RB_LAST);
@@ -711,67 +711,67 @@ static void remote_screen_init(void) {
 
     // Numpad rows
     bw = 85; bh = 50;
-    y = 48;
+    y = 74;
     remote_createBtn(tabNumbers, -90, y, bw, bh, "1", 0x2A2A4A, RB_1);
     remote_createBtn(tabNumbers,   0, y, bw, bh, "2", 0x2A2A4A, RB_2);
     remote_createBtn(tabNumbers,  90, y, bw, bh, "3", 0x2A2A4A, RB_3);
 
-    y = 104;
+    y = 130;
     remote_createBtn(tabNumbers, -90, y, bw, bh, "4", 0x2A2A4A, RB_4);
     remote_createBtn(tabNumbers,   0, y, bw, bh, "5", 0x2A2A4A, RB_5);
     remote_createBtn(tabNumbers,  90, y, bw, bh, "6", 0x2A2A4A, RB_6);
 
-    y = 160;
+    y = 186;
     remote_createBtn(tabNumbers, -90, y, bw, bh, "7", 0x2A2A4A, RB_7);
     remote_createBtn(tabNumbers,   0, y, bw, bh, "8", 0x2A2A4A, RB_8);
     remote_createBtn(tabNumbers,  90, y, bw, bh, "9", 0x2A2A4A, RB_9);
 
-    y = 216;
+    y = 242;
     remote_createBtn(tabNumbers,   0, y, bw, bh, "0", 0x2A2A4A, RB_0);
 
     // ==================== NAV TAB ====================
     // Top row: BACK, MENU, HOME
-    y = 2;
+    y = 23;
     remote_createBtn(tabNav, -95, y, 80, 40, "BACK", 0x333366, RB_BACK);
     remote_createBtn(tabNav,   0, y, 80, 40, "MENU", 0x333366, RB_MENU);
     remote_createBtn(tabNav,  95, y, 80, 40, "HOME", 0x333366, RB_HOME);
 
     // D-pad: UP
-    y = 58;
+    y = 79;
     remote_createBtn(tabNav, 0, y, 80, 50, LV_SYMBOL_UP, 0x336699, RB_UP);
 
     // D-pad: LEFT, OK, RIGHT
-    y = 116;
+    y = 137;
     remote_createBtn(tabNav, -90, y, 80, 50, LV_SYMBOL_LEFT, 0x336699, RB_LEFT);
     remote_createBtn(tabNav,   0, y, 80, 50, "OK", 0x006633, RB_OK);
     remote_createBtn(tabNav,  90, y, 80, 50, LV_SYMBOL_RIGHT, 0x336699, RB_RIGHT);
 
     // D-pad: DOWN
-    y = 174;
+    y = 195;
     remote_createBtn(tabNav, 0, y, 80, 50, LV_SYMBOL_DOWN, 0x336699, RB_DOWN);
 
     // Bottom row: GUIDE, INFO
-    y = 238;
+    y = 259;
     remote_createBtn(tabNav, -60, y, 105, 40, "GUIDE", 0x444466, RB_GUIDE);
     remote_createBtn(tabNav,  60, y, 105, 40, "INFO",  0x444466, RB_INFO);
 
     // ==================== MEDIA TAB ====================
     // Row 1: VOL+, VOL-, CH+, CH-
-    y = 2;
+    y = 74;
     remote_createBtn(tabMedia, -115, y, 68, 50, "VOL +", 0x006633, RB_VOL_UP);
     remote_createBtn(tabMedia,  -38, y, 68, 50, "VOL -", 0x663300, RB_VOL_DOWN);
     remote_createBtn(tabMedia,   38, y, 68, 50, "CH +",  0x006633, RB_CH_UP);
     remote_createBtn(tabMedia,  115, y, 68, 50, "CH -",  0x663300, RB_CH_DOWN);
 
     // Row 2: PREV, PLAY, PAUSE, NEXT
-    y = 64;
+    y = 136;
     remote_createBtn(tabMedia, -115, y, 68, 50, LV_SYMBOL_PREV,  0x336699, RB_PREV);
     remote_createBtn(tabMedia,  -38, y, 68, 50, LV_SYMBOL_PLAY,  0x006633, RB_PLAY);
     remote_createBtn(tabMedia,   38, y, 68, 50, LV_SYMBOL_PAUSE, 0x994400, RB_PAUSE);
     remote_createBtn(tabMedia,  115, y, 68, 50, LV_SYMBOL_NEXT,  0x336699, RB_NEXT);
 
     // Row 3: STOP, INPUT, RECORD
-    y = 126;
+    y = 198;
     remote_createBtn(tabMedia, -90, y, 85, 50, LV_SYMBOL_STOP, 0xCC0000, RB_STOP);
     remote_createBtn(tabMedia,   0, y, 85, 50, "INPUT",         0x333366, RB_INPUT);
     remote_createBtn(tabMedia,  90, y, 85, 50, "REC",           0x990000, RB_RECORD);
