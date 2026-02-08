@@ -36,6 +36,9 @@ Flash WaveSentinel directly from your browser — no tools required.
 - **Signal Generator** — Transmit on configurable frequency, modulation, and data rate
 - **Flipper .sub Compatible** — Load, save, and play Flipper Zero sub-files from SD card
 - **Tesla Charge Port** — US and EU signal emulation
+- **RCSwitch Types A–D** — DIP switch, rotary/sliding, Intertechno, and REV remote control transmit
+- **RAW TX** — Send raw codes with configurable frequency, bit length, pulse length, protocol, and repeat count
+- **Universal Remote** — 35-button programmable remote (Numbers, Nav, Media tabs). Assign any .sub file to any button, save/load profiles to SD card
 - **Full CC1101 Config** — Frequency, modulation, bandwidth, deviation, data rate, TX power, sync mode, packet format
 
 ### WiFi
@@ -53,9 +56,9 @@ Flash WaveSentinel directly from your browser — no tools required.
 ### Hardware & UI
 - **3.5" Capacitive Touchscreen** — Full touch-driven LVGL interface, no buttons needed
 - **Status Bar** — Persistent WiFi and battery icons across all screens
-- **SD Card** — Save/load captures, presets, and Flipper .sub files
+- **SD Card** — Save/load captures, presets, remote profiles, and Flipper .sub files
 - **I2S Audio** — Sound output via DAC
-- **TouchTunes Remote** — Wireless jukebox control
+- **TouchTunes Remote** — Wireless jukebox control with full command set
 
 ---
 
@@ -112,7 +115,7 @@ Core 0: LVGL display refresh (5ms timer)
 Core 1: Main loop state machine — RF, WiFi, BLE operations
 ```
 
-All LVGL calls from Core 1 are protected by a FreeRTOS mutex. The state machine in `main.cpp` drives 21 operational states across RF capture/playback, WiFi scanning/attack, BLE operations, and more.
+All LVGL calls from Core 1 are protected by a FreeRTOS mutex. The state machine in `main.cpp` drives 23 operational states across RF capture/playback, WiFi scanning/attack, BLE operations, universal remote, and more.
 
 ---
 

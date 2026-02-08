@@ -446,6 +446,9 @@
         <li><strong>Signal Generator</strong> &mdash; Transmit on any configurable frequency and modulation</li>
         <li><strong>Flipper .sub Files</strong> &mdash; Load, save, and play Flipper Zero sub-files from SD card</li>
         <li><strong>Tesla Charge Port</strong> &mdash; US and EU charge port signal emulation</li>
+        <li><strong>RCSwitch Types A&ndash;D</strong> &mdash; DIP switch, rotary/sliding, Intertechno, and REV remote control transmit</li>
+        <li><strong>RAW TX</strong> &mdash; Send raw codes with configurable frequency, bit length, pulse length, protocol, and repeat</li>
+        <li><strong>Universal Remote</strong> &mdash; 35-button programmable remote (Numbers, Nav, Media). Assign any .sub file to any button, save/load profiles to SD</li>
         <li><strong>Full CC1101 Config</strong> &mdash; Frequency, modulation (ASK/FSK/GFSK/MSK), bandwidth, deviation, data rate, TX power, sync mode, packet format</li>
         <li><strong>Save to SD</strong> &mdash; Export captures as Flipper-compatible .sub files</li>
       </ul>
@@ -483,9 +486,9 @@
       <ul class="feature-list">
         <li><strong>3.5" Touchscreen</strong> &mdash; 480x320 capacitive IPS display, full touch-driven LVGL UI</li>
         <li><strong>Persistent Status Bar</strong> &mdash; WiFi and battery icons visible across all screens</li>
-        <li><strong>microSD Card</strong> &mdash; Save/load RF captures, Flipper .sub files, and presets</li>
+        <li><strong>microSD Card</strong> &mdash; Save/load RF captures, Flipper .sub files, remote profiles, and presets</li>
         <li><strong>I2S Audio Output</strong> &mdash; DAC sound output via dedicated I2S bus</li>
-        <li><strong>TouchTunes Remote</strong> &mdash; Wireless jukebox control built in</li>
+        <li><strong>TouchTunes Remote</strong> &mdash; Wireless jukebox control with full command set</li>
         <li><strong>Dual-Core Architecture</strong> &mdash; Core 0 handles display, Core 1 handles RF/WiFi/BLE operations</li>
       </ul>
     </div>
@@ -512,7 +515,7 @@
           <span class="req-icon">&#128190;</span>
           <div class="req-text">
             <strong>microSD Card</strong>
-            <span>For storing captures, presets, and Flipper .sub files. Any size FAT32 formatted</span>
+            <span>For storing captures, presets, remote profiles, and Flipper .sub files. Any size FAT32 formatted</span>
           </div>
         </div>
         <div class="req-item">
@@ -611,7 +614,7 @@
         <li><strong>Wire the CC1101</strong> &mdash; Connect MISO(11), MOSI(10), SCLK(14), CS(12), GDO0(13), VCC(3.3V), and GND</li>
         <li><strong>Flash the firmware</strong> &mdash; Use the Install button above (Chrome/Edge), or build from source with <code style="background:#1a1a2e;padding:0.15rem 0.4rem;border-radius:4px;font-size:0.85rem;color:var(--cyan);">pio run --target upload</code></li>
         <li><strong>Insert SD card</strong> &mdash; FAT32 formatted, for saving captures and loading Flipper .sub files</li>
-        <li><strong>Power on &amp; tap</strong> &mdash; The splash screen shows your device serial and firmware version. Tap to enter the main menu</li>
+        <li><strong>Power on &amp; tap</strong> &mdash; The splash screen shows the firmware version. Tap anywhere to enter the main menu</li>
       </ol>
     </div>
 
