@@ -103,9 +103,9 @@ void ui_scrMain_screen_init(void)
     lv_obj_clear_flag(ui_btnMainPlayMp3, LV_OBJ_FLAG_SCROLLABLE);
     apply_btn_style(ui_btnMainPlayMp3);
 
-    create_symbol_icon(ui_btnMainPlayMp3, LV_SYMBOL_AUDIO);
+    create_symbol_icon(ui_btnMainPlayMp3, LV_SYMBOL_LIST);
 
-    ui_lblMainPlayMp3 = create_btn_label(ui_btnMainPlayMp3, "AUDIO");
+    ui_lblMainPlayMp3 = create_btn_label(ui_btnMainPlayMp3, "REMOTE");
 
     // =====================================================================
     // ROW 2 (y=124): WiFi, Prot Analyzer, Flipper

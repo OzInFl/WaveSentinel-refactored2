@@ -44,6 +44,9 @@ void event_exit_wifi_screen(lv_event_t * e);
 void event_rc_switch_send_on(lv_event_t * e);
 void event_rc_switch_send_off(lv_event_t * e);
 void event_keyboard_rcsw(lv_event_t * e);
+void event_rcsw_type_changed(lv_event_t * e);
+void event_raw_tx_send(lv_event_t * e);
+void event_keyboard_raw_tx(lv_event_t * e);
 void event_tab_change_cc1101_stuff(lv_event_t * e);
 void event_keyboard_scanner_stop(lv_event_t * e);
 void event_keyboard_scanner_start(lv_event_t * e);
@@ -85,6 +88,7 @@ void event_beacon_stop(lv_event_t * e);
 void event_deauth_scan(lv_event_t * e);
 void event_deauth_start(lv_event_t * e);
 void event_deauth_stop(lv_event_t * e);
+void event_load_remote_screen(lv_event_t * e);
 
 #ifdef __cplusplus
 } /*extern "C"*/

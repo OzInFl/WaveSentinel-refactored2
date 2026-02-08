@@ -438,6 +438,54 @@ void SubGhz::switchOff(const char *sGroup, const char *sDevice)
 }
 
 // ---------------------------------------------------------------------
+// Type B (Rotary)
+// ---------------------------------------------------------------------
+void SubGhz::switchOnB(int nAddress, int nChannel)
+{
+    mySwitch.switchOn(nAddress, nChannel);
+}
+void SubGhz::switchOffB(int nAddress, int nChannel)
+{
+    mySwitch.switchOff(nAddress, nChannel);
+}
+
+// ---------------------------------------------------------------------
+// Type C (Intertechno)
+// ---------------------------------------------------------------------
+void SubGhz::switchOnC(char sFamily, int nGroup, int nDevice)
+{
+    mySwitch.switchOn(sFamily, nGroup, nDevice);
+}
+void SubGhz::switchOffC(char sFamily, int nGroup, int nDevice)
+{
+    mySwitch.switchOff(sFamily, nGroup, nDevice);
+}
+
+// ---------------------------------------------------------------------
+// Type D (REV)
+// ---------------------------------------------------------------------
+void SubGhz::switchOnD(char sGroup, int nDevice)
+{
+    mySwitch.switchOn(sGroup, nDevice);
+}
+void SubGhz::switchOffD(char sGroup, int nDevice)
+{
+    mySwitch.switchOff(sGroup, nDevice);
+}
+
+// ---------------------------------------------------------------------
+// Raw code send
+// ---------------------------------------------------------------------
+void SubGhz::sendRaw(unsigned long code, unsigned int bitLength, int protocol, int pulseLength, int repeatCount)
+{
+    mySwitch.setProtocol(protocol);
+    mySwitch.setPulseLength(pulseLength);
+    mySwitch.setRepeatTransmit(repeatCount);
+    mySwitch.send(code, bitLength);
+    mySwitch.setRepeatTransmit(10);  // reset default
+}
+
+// ---------------------------------------------------------------------
 // void SubGhz::sendLastSignal()
 // ---------------------------------------------------------------------
 void SubGhz::sendLastSignal()

@@ -275,6 +275,40 @@ void ui_event_txt10PoleFreq(lv_event_t * e);
 lv_obj_t * ui_txt10PoleFreq;
 lv_obj_t * ui_lblRCSWStatus;
 lv_obj_t * ui_NEW;
+// Type B/C/D panels
+lv_obj_t * ui_panelTypeB;
+lv_obj_t * ui_ddlTypeBAddr;
+lv_obj_t * ui_ddlTypeBChan;
+lv_obj_t * ui_lblTypeBAddr;
+lv_obj_t * ui_lblTypeBChan;
+lv_obj_t * ui_panelTypeC;
+lv_obj_t * ui_ddlTypeCFamily;
+lv_obj_t * ui_ddlTypeCGroup;
+lv_obj_t * ui_ddlTypeCDevice;
+lv_obj_t * ui_lblTypeCFamily;
+lv_obj_t * ui_lblTypeCGroup;
+lv_obj_t * ui_lblTypeCDevice;
+lv_obj_t * ui_panelTypeD;
+lv_obj_t * ui_ddlTypeDGroup;
+lv_obj_t * ui_ddlTypeDDevice;
+lv_obj_t * ui_lblTypeDGroup;
+lv_obj_t * ui_lblTypeDDevice;
+// RAW TX tab
+lv_obj_t * ui_txtRawCode;
+lv_obj_t * ui_txtRawBitLen;
+lv_obj_t * ui_txtRawPulseLen;
+lv_obj_t * ui_ddlRawProtocol;
+lv_obj_t * ui_ddlRawRepeat;
+lv_obj_t * ui_lblRawCode;
+lv_obj_t * ui_lblRawBitLen;
+lv_obj_t * ui_lblRawPulseLen;
+lv_obj_t * ui_lblRawProtocol;
+lv_obj_t * ui_lblRawRepeat;
+lv_obj_t * ui_lblRawStatus;
+lv_obj_t * ui_btnRawTxSend;
+lv_obj_t * ui_lblRawTxSend;
+lv_obj_t * ui_txtRawFreq;
+lv_obj_t * ui_lblRawFreq;
 void ui_event_btnRCSWBack(lv_event_t * e);
 lv_obj_t * ui_btnRCSWBack;
 lv_obj_t * ui_lblRCSWBack;
@@ -473,7 +507,7 @@ void ui_event_btnMainPlayMp3(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
     lv_obj_t * target = lv_event_get_target(e);
     if(event_code == LV_EVENT_CLICKED) {
-        event_play_audio_test(e);
+        event_load_remote_screen(e);
     }
 }
 void ui_event_btnMainStopMp3(lv_event_t * e)
@@ -1106,6 +1140,49 @@ void ui_event_swBLEEnable(lv_event_t * e)
     lv_obj_t * target = lv_event_get_target(e);
     if(event_code == LV_EVENT_CLICKED) {
         fcnBLEToggle(e);
+    }
+}
+
+void ui_event_ddlTenProto(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_VALUE_CHANGED) {
+        event_rcsw_type_changed(e);
+    }
+}
+void ui_event_btnRawTxSend(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_CLICKED) {
+        event_raw_tx_send(e);
+    }
+}
+void ui_event_txtRawCode(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_FOCUSED || event_code == LV_EVENT_READY) {
+        event_keyboard_raw_tx(e);
+    }
+}
+void ui_event_txtRawBitLen(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_FOCUSED || event_code == LV_EVENT_READY) {
+        event_keyboard_raw_tx(e);
+    }
+}
+void ui_event_txtRawPulseLen(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_FOCUSED || event_code == LV_EVENT_READY) {
+        event_keyboard_raw_tx(e);
+    }
+}
+void ui_event_txtRawFreq(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+    if(event_code == LV_EVENT_FOCUSED || event_code == LV_EVENT_READY) {
+        event_keyboard_raw_tx(e);
     }
 }
 

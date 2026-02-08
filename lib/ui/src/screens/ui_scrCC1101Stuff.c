@@ -858,8 +858,8 @@ void ui_scrCC1101Stuff_screen_init(void)
     ui_indGreen = lv_obj_create(ui_scrCC1101Stuff);
     lv_obj_set_width(ui_indGreen, 14);
     lv_obj_set_height(ui_indGreen, 14);
-    lv_obj_set_x(ui_indGreen, 130);
-    lv_obj_set_y(ui_indGreen, -223);
+    lv_obj_set_x(ui_indGreen, 150);
+    lv_obj_set_y(ui_indGreen, -210);
     lv_obj_set_align(ui_indGreen, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_indGreen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(ui_indGreen, LV_OBJ_FLAG_HIDDEN);
@@ -877,8 +877,8 @@ void ui_scrCC1101Stuff_screen_init(void)
     ui_indRed = lv_obj_create(ui_scrCC1101Stuff);
     lv_obj_set_width(ui_indRed, 14);
     lv_obj_set_height(ui_indRed, 14);
-    lv_obj_set_x(ui_indRed, 148);
-    lv_obj_set_y(ui_indRed, -223);
+    lv_obj_set_x(ui_indRed, 150);
+    lv_obj_set_y(ui_indRed, -210);
     lv_obj_set_align(ui_indRed, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_indRed, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(ui_indRed, LV_OBJ_FLAG_HIDDEN);

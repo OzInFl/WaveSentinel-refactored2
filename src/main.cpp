@@ -18,7 +18,6 @@
 // ---------------------------------------------------------------
 
 #include "Misc/Config.h"
-#include "Misc/AuthorizedDevices.h"
 #include "Display/Display.h"
 #include "SubGhz/SubGhz.h"
 #include "WiFi/WiFix.h"
@@ -26,6 +25,7 @@
 #include "WiFi/WiFiMarauder.h"
 #include "SD/SDCard.h"
 #include "Display/TouchTunesScreen.h"
+#include "Display/RemoteScreen.h"
 #include "Display/StatusBar.h"
 
 #include "Arduino.h"
@@ -57,10 +57,6 @@ Audio audio;
 // Preferences Library
 Preferences prefs;
 
-// Device serial number (populated in setup from ESP32 eFuse MAC)
-static char deviceSerial[13] = {0};
-static bool deviceAuthorized = true;
-
 // WiFi Join — keyboard overlay state
 static lv_obj_t *wifiJoinPanel = NULL;
 static lv_obj_t *wifiJoinTextarea = NULL;
@@ -76,16 +72,6 @@ const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // FUNCTIONS
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------
-// Auth-aware splash screen click handler
-// Replaces the SquareLine-generated ui_event_scrSplash at runtime
-// ---------------------------------------------------------------------
-void auth_splash_event(lv_event_t * e) {
-    if (deviceAuthorized) {
-        _ui_screen_change(&ui_scrMain, LV_SCR_LOAD_ANIM_FADE_ON, 0, 0, &ui_scrMain_screen_init);
-    }
-}
 
 // ---------------------------------------------------------------------
 // void Task_Refresh_Screen(void *parameter)
@@ -158,34 +144,14 @@ void setup()
 
   Print_Debug("Initializing Default Value...");
 
-  // Read chip serial from eFuse MAC
-  uint64_t chipId = ESP.getEfuseMac();
-  snprintf(deviceSerial, sizeof(deviceSerial), "%012llX", chipId);
-  Print_Debug("Device SN: %s", deviceSerial);
-
-  // Show version + serial on splash with black background for readability
+  // Show version on splash with black background for readability
   char splashInfo[64];
-  snprintf(splashInfo, sizeof(splashInfo), "v%d.%d.%d  SN:%s",
-           APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, deviceSerial);
+  snprintf(splashInfo, sizeof(splashInfo), "v%d.%d.%d",
+           APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH);
   lv_label_set_text(ui_lblVersion, splashInfo);
   lv_obj_set_style_bg_color(ui_lblVersion, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_lblVersion, 180, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_pad_all(ui_lblVersion, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-  // Authorization check (empty list = all devices allowed)
-  if (AUTHORIZED_COUNT > 0) {
-    deviceAuthorized = false;
-    for (int i = 0; i < AUTHORIZED_COUNT; i++) {
-      if (strcmp(deviceSerial, AUTHORIZED_SERIALS[i]) == 0) {
-        deviceAuthorized = true;
-        break;
-      }
-    }
-  }
-
-  // Replace splash click handler with auth-aware version
-  lv_obj_remove_event_cb(ui_scrSplash, ui_event_scrSplash);
-  lv_obj_add_event_cb(ui_scrSplash, auth_splash_event, LV_EVENT_CLICKED, NULL);
 
   // Black background on splash labels for readability over image
   lv_obj_set_style_bg_color(ui_lblSplashStatus, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -195,55 +161,7 @@ void setup()
   lv_obj_set_style_bg_opa(ui_lblSplash, 180, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_pad_all(ui_lblSplash, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  if (deviceAuthorized) {
-    lv_label_set_text(ui_lblSplashStatus, "TAP ANYWHERE TO BEGIN");
-  } else {
-    // Hide normal splash labels
-    lv_obj_add_flag(ui_lblSplashStatus, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_lblSplash, LV_OBJ_FLAG_HIDDEN);
-
-    // --- Large unauthorized popup overlay ---
-    lv_obj_t *authPanel = lv_obj_create(ui_scrSplash);
-    lv_obj_set_size(authPanel, 450, 300);
-    lv_obj_center(authPanel);
-    lv_obj_clear_flag(authPanel, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(authPanel, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(authPanel, 245, LV_PART_MAIN);
-    lv_obj_set_style_border_color(authPanel, lv_color_hex(0xFF4444), LV_PART_MAIN);
-    lv_obj_set_style_border_width(authPanel, 3, LV_PART_MAIN);
-    lv_obj_set_style_radius(authPanel, 12, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(authPanel, 10, LV_PART_MAIN);
-    lv_obj_set_flex_flow(authPanel, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(authPanel, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(authPanel, 6, LV_PART_MAIN);
-
-    // Big red heading
-    lv_obj_t *lblTitle = lv_label_create(authPanel);
-    lv_label_set_text(lblTitle, "UNAUTHORIZED DEVICE");
-    lv_obj_set_style_text_color(lblTitle, lv_color_hex(0xFF4444), LV_PART_MAIN);
-    lv_obj_set_style_text_font(lblTitle, &lv_font_montserrat_24, LV_PART_MAIN);
-
-    // Serial number prominently
-    lv_obj_t *lblSerial = lv_label_create(authPanel);
-    char snBuf[32];
-    snprintf(snBuf, sizeof(snBuf), "SN: %s", deviceSerial);
-    lv_label_set_text(lblSerial, snBuf);
-    lv_obj_set_style_text_color(lblSerial, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(lblSerial, &lv_font_montserrat_18, LV_PART_MAIN);
-
-    // QR code linking to web page
-    static const char *qrUrl = "https://ozinfl.github.io/WaveSentinel-refactored2/";
-    lv_obj_t *qr = lv_qrcode_create(authPanel, 140, lv_color_hex(0x000000), lv_color_hex(0xFFFFFF));
-    lv_qrcode_update(qr, qrUrl, strlen(qrUrl));
-    lv_obj_set_style_border_color(qr, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_border_width(qr, 4, LV_PART_MAIN);
-
-    // Instruction text below QR
-    lv_obj_t *lblInfo = lv_label_create(authPanel);
-    lv_label_set_text(lblInfo, "Scan QR or contact admin with serial above");
-    lv_obj_set_style_text_color(lblInfo, lv_color_hex(0x888888), LV_PART_MAIN);
-    lv_obj_set_style_text_font(lblInfo, &ui_font_Verdana12, LV_PART_MAIN);
-  }
+  lv_label_set_text(ui_lblSplashStatus, "TAP ANYWHERE TO BEGIN");
 
   Print_Debug("Initializing CC1101...");
 
@@ -260,6 +178,9 @@ void setup()
 
   // Build dynamic TouchTunes remote screen (no SquareLine license needed)
   tt_screen_init();
+
+  // Build dynamic Universal Remote screen
+  remote_screen_init();
 
   // Wire the TouchTunes button (not wired in SquareLine)
   lv_obj_add_event_cb(ui_btnMainTTunes, fcnTouchTunes, LV_EVENT_CLICKED, NULL);
@@ -627,6 +548,43 @@ void loop()
 
     currentState = STATE_IDLE;
   }
+  else if (currentState == STATE_SEND_REMOTE)
+  {
+    Print_Debug("Sending Remote command");
+
+    bool ok = false;
+    if (sd_card_is_present()) {
+      if (read_sd_card_flipper_file(String(remote_pendingPath))) {
+        now_close_sd_card();
+
+        char dbg[96];
+        snprintf(dbg, sizeof(dbg), "Remote TX: samples=%d freq=%.2f file=%s",
+                 tempSampleCount, tempFreq, remote_pendingPath);
+        Print_Debug(dbg);
+
+        SUBGHZ.setFrequency(tempFreq);
+        SUBGHZ.enableTransmit();
+        SUBGHZ.sendSamples(tempSample, tempSampleCount);
+        SUBGHZ.disableTransmit();
+        ok = true;
+      } else {
+        now_close_sd_card();
+      }
+    }
+
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (ok) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "Sent: %s", rb_displayNames[remote_pendingBtnId]);
+        lv_label_set_text(remote_lblStatus, msg);
+      } else {
+        lv_label_set_text(remote_lblStatus, "Error: file not found");
+      }
+      xSemaphoreGive(lvgl_mutex);
+    }
+
+    currentState = STATE_IDLE;
+  }
   else if (currentState == STATE_WIFI_SNIFF)
   {
     WiFiMarauder::sniffLoop();  // Channel hopping
@@ -952,6 +910,49 @@ void event_select_flipper_file(lv_event_t *e)
 }
 
 // ---------------------------------------------------------------------
+// Delete confirmation popup
+// ---------------------------------------------------------------------
+static char pendingDeletePath[256] = {0};
+
+static void confirm_delete_cb(lv_event_t *e)
+{
+  lv_obj_t *mbox = lv_event_get_current_target(e);
+  const char *btn_text = lv_msgbox_get_active_btn_text(mbox);
+  if (btn_text == NULL) return;
+
+  if (strcmp(btn_text, "Yes") == 0) {
+    if (sd_card_is_present()) {
+      if (SD.remove(pendingDeletePath)) {
+        char statusBuf[80];
+        snprintf(statusBuf, sizeof(statusBuf), "Deleted: %s", pendingDeletePath);
+        lv_label_set_text(ui_lblPresetsStatus, statusBuf);
+        Print_Debug(statusBuf);
+      } else {
+        lv_label_set_text(ui_lblPresetsStatus, "Delete failed!");
+      }
+
+      // Refresh the file list
+      char *currentFolder = (char *)malloc(generaleSize * sizeof(char));
+      lv_dropdown_get_selected_str(ui_ddPresetsFolder, currentFolder, generaleSize);
+      if (strcmp(currentFolder, "/") == 0) {
+        refresh_sd_card_file(ui_ddPresetsFile, "/", ".sub", true);
+      } else {
+        char folderPath[128];
+        snprintf(folderPath, sizeof(folderPath), "/%s", currentFolder);
+        refresh_sd_card_file(ui_ddPresetsFile, folderPath, ".sub", true);
+      }
+      free(currentFolder);
+
+      now_close_sd_card();
+    } else {
+      lv_label_set_text(ui_lblPresetsStatus, "SD Card not found");
+    }
+  }
+
+  lv_msgbox_close(mbox);
+}
+
+// ---------------------------------------------------------------------
 // void event_delete_flipper_file(lv_event_t *e)
 // ---------------------------------------------------------------------
 void event_delete_flipper_file(lv_event_t *e)
@@ -973,46 +974,27 @@ void event_delete_flipper_file(lv_event_t *e)
   lv_dropdown_get_selected_str(ui_ddPresetsFolder, folderbuffer, generaleSize);
   lv_dropdown_get_selected_str(ui_ddPresetsFile, filebuffer, generaleSize);
 
-  char fullpath[256];
   if (folderIndex == 0) {
-    snprintf(fullpath, sizeof(fullpath), "/%s", filebuffer);
+    snprintf(pendingDeletePath, sizeof(pendingDeletePath), "/%s", filebuffer);
   } else {
-    snprintf(fullpath, sizeof(fullpath), "/%s/%s", folderbuffer, filebuffer);
+    snprintf(pendingDeletePath, sizeof(pendingDeletePath), "/%s/%s", folderbuffer, filebuffer);
   }
 
   free(folderbuffer);
   free(filebuffer);
 
-  // Delete the file
-  if (sd_card_is_present())
-  {
-    if (SD.remove(fullpath)) {
-      char statusBuf[80];
-      snprintf(statusBuf, sizeof(statusBuf), "Deleted: %s", fullpath);
-      lv_label_set_text(ui_lblPresetsStatus, statusBuf);
-      Print_Debug(statusBuf);
-    } else {
-      lv_label_set_text(ui_lblPresetsStatus, "Delete failed!");
-    }
+  // Show confirmation popup
+  static const char *btns[] = {"Yes", "No", ""};
+  char msgBuf[300];
+  snprintf(msgBuf, sizeof(msgBuf), "Delete file?\n%s", pendingDeletePath);
 
-    // Refresh the file list
-    char *currentFolder = (char *)malloc(generaleSize * sizeof(char));
-    lv_dropdown_get_selected_str(ui_ddPresetsFolder, currentFolder, generaleSize);
-    if (strcmp(currentFolder, "/") == 0) {
-      refresh_sd_card_file(ui_ddPresetsFile, "/", ".sub", true);
-    } else {
-      char folderPath[128];
-      snprintf(folderPath, sizeof(folderPath), "/%s", currentFolder);
-      refresh_sd_card_file(ui_ddPresetsFile, folderPath, ".sub", true);
-    }
-    free(currentFolder);
-
-    now_close_sd_card();
-  }
-  else
-  {
-    lv_label_set_text(ui_lblPresetsStatus, "SD Card not found");
-  }
+  lv_obj_t *mbox = lv_msgbox_create(NULL, "Confirm Delete", msgBuf, btns, false);
+  lv_obj_center(mbox);
+  lv_obj_set_style_bg_color(mbox, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
+  lv_obj_set_style_border_color(mbox, lv_color_hex(0xFF4444), LV_PART_MAIN);
+  lv_obj_set_style_border_width(mbox, 2, LV_PART_MAIN);
+  lv_obj_set_style_text_color(mbox, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_add_event_cb(mbox, confirm_delete_cb, LV_EVENT_VALUE_CHANGED, NULL);
 }
 
 // ---------------------------------------------------------------------
@@ -1819,6 +1801,42 @@ void event_replay_protocol_analyzer(lv_event_t *e)
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------
+// void event_rcsw_type_changed(lv_event_t *e) — show/hide panels for device type
+// ---------------------------------------------------------------------
+void event_rcsw_type_changed(lv_event_t *e)
+{
+  Print_Debug("event_rcsw_type_changed");
+  uint16_t sel = lv_dropdown_get_selected(ui_ddlTenProto);
+
+  // Hide all 10 DIP switches + bit labels
+  lv_obj_t *switches[] = {ui_TenPoleSW0, ui_TenPoleSW1, ui_TenPoleSW2, ui_TenPoleSW3, ui_TenPoleSW4,
+                           ui_TenPoleSW5, ui_TenPoleSW6, ui_TenPoleSW7, ui_TenPoleSW8, ui_TenPoleSW9};
+  lv_obj_t *labels[] = {ui_lblBit0, ui_lblBit1, ui_lblBit2, ui_lblBit3, ui_lblBit4,
+                         ui_lblBit5, ui_lblBit6, ui_lblBit7, ui_lblBit8, ui_lblBit9};
+  for (int i = 0; i < 10; i++) {
+    if (sel == 0) {
+      lv_obj_clear_flag(switches[i], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(labels[i], LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(switches[i], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(labels[i], LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
+  // Hide all type panels
+  lv_obj_add_flag(ui_panelTypeB, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_panelTypeC, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_panelTypeD, LV_OBJ_FLAG_HIDDEN);
+
+  // Show the selected type panel
+  if (sel == 1) lv_obj_clear_flag(ui_panelTypeB, LV_OBJ_FLAG_HIDDEN);
+  else if (sel == 2) lv_obj_clear_flag(ui_panelTypeC, LV_OBJ_FLAG_HIDDEN);
+  else if (sel == 3) lv_obj_clear_flag(ui_panelTypeD, LV_OBJ_FLAG_HIDDEN);
+
+  lv_label_set_text(ui_lblRCSWStatus, "-");
+}
+
+// ---------------------------------------------------------------------
 // void event_rc_switch_send_on(lv_event_t *e)
 // ---------------------------------------------------------------------
 void event_rc_switch_send_on(lv_event_t *e)
@@ -1827,30 +1845,53 @@ void event_rc_switch_send_on(lv_event_t *e)
 
   float freq = atof(lv_textarea_get_text(ui_txt10PoleFreq));
   SUBGHZ.setFrequency(freq);
-
-  lv_label_set_text(ui_lblRCSWStatus, "TX 'On' Command.");
-
-  char firstFive[6], secondFive[6];
-  snprintf(firstFive, sizeof(firstFive), "%s%s%s%s%s",
-           lv_label_get_text(ui_lblBit0), lv_label_get_text(ui_lblBit1),
-           lv_label_get_text(ui_lblBit2), lv_label_get_text(ui_lblBit3),
-           lv_label_get_text(ui_lblBit4));
-  snprintf(secondFive, sizeof(secondFive), "%s%s%s%s%s",
-           lv_label_get_text(ui_lblBit5), lv_label_get_text(ui_lblBit6),
-           lv_label_get_text(ui_lblBit7), lv_label_get_text(ui_lblBit8),
-           lv_label_get_text(ui_lblBit9));
-
   SUBGHZ.enableTransmit();
-  SUBGHZ.switchOn(firstFive, secondFive);
+
+  uint16_t type = lv_dropdown_get_selected(ui_ddlTenProto);
+  char txBuf[48];
+
+  switch (type) {
+    case 0: { // Type A — DIP switches
+      char firstFive[6], secondFive[6];
+      snprintf(firstFive, sizeof(firstFive), "%s%s%s%s%s",
+               lv_label_get_text(ui_lblBit0), lv_label_get_text(ui_lblBit1),
+               lv_label_get_text(ui_lblBit2), lv_label_get_text(ui_lblBit3),
+               lv_label_get_text(ui_lblBit4));
+      snprintf(secondFive, sizeof(secondFive), "%s%s%s%s%s",
+               lv_label_get_text(ui_lblBit5), lv_label_get_text(ui_lblBit6),
+               lv_label_get_text(ui_lblBit7), lv_label_get_text(ui_lblBit8),
+               lv_label_get_text(ui_lblBit9));
+      SUBGHZ.switchOn(firstFive, secondFive);
+      snprintf(txBuf, sizeof(txBuf), "TX ON A: %s%s", firstFive, secondFive);
+      break;
+    }
+    case 1: { // Type B — Rotary
+      int addr = lv_dropdown_get_selected(ui_ddlTypeBAddr) + 1;
+      int chan = lv_dropdown_get_selected(ui_ddlTypeBChan) + 1;
+      SUBGHZ.switchOnB(addr, chan);
+      snprintf(txBuf, sizeof(txBuf), "TX ON B: Addr=%d Ch=%d", addr, chan);
+      break;
+    }
+    case 2: { // Type C — Intertechno
+      char family = 'a' + lv_dropdown_get_selected(ui_ddlTypeCFamily);
+      int group = lv_dropdown_get_selected(ui_ddlTypeCGroup) + 1;
+      int device = lv_dropdown_get_selected(ui_ddlTypeCDevice) + 1;
+      SUBGHZ.switchOnC(family, group, device);
+      snprintf(txBuf, sizeof(txBuf), "TX ON C: %c G%d D%d", family, group, device);
+      break;
+    }
+    case 3: { // Type D — REV
+      char group = 'A' + lv_dropdown_get_selected(ui_ddlTypeDGroup);
+      int device = lv_dropdown_get_selected(ui_ddlTypeDDevice) + 1;
+      SUBGHZ.switchOnD(group, device);
+      snprintf(txBuf, sizeof(txBuf), "TX ON D: Grp=%c Dev=%d", group, device);
+      break;
+    }
+  }
+
   SUBGHZ.disableTransmit();
-
-  char txBuf[32];
-  snprintf(txBuf, sizeof(txBuf), "TX ON: %s%s", firstFive, secondFive);
   lv_label_set_text(ui_lblRCSWStatus, txBuf);
-
-  char dbgBuf[96];
-  snprintf(dbgBuf, sizeof(dbgBuf), "Send switch ON, value: %s%s - Frequency: %.2f mHz", firstFive, secondFive, freq);
-  Print_Debug(dbgBuf);
+  Print_Debug(txBuf);
 }
 
 // ---------------------------------------------------------------------
@@ -1862,32 +1903,94 @@ void event_rc_switch_send_off(lv_event_t *e)
 
   float freq = atof(lv_textarea_get_text(ui_txt10PoleFreq));
   SUBGHZ.setFrequency(freq);
+  SUBGHZ.enableTransmit();
 
-  char freqBuf[16];
-  snprintf(freqBuf, sizeof(freqBuf), "%.2f", SUBGHZ.getFrequency());
-  lv_label_set_text(ui_lblRCSWStatus, freqBuf); //"TX 'Off' Command.");
+  uint16_t type = lv_dropdown_get_selected(ui_ddlTenProto);
+  char txBuf[48];
 
-  char firstFive[6], secondFive[6];
-  snprintf(firstFive, sizeof(firstFive), "%s%s%s%s%s",
-           lv_label_get_text(ui_lblBit0), lv_label_get_text(ui_lblBit1),
-           lv_label_get_text(ui_lblBit2), lv_label_get_text(ui_lblBit3),
-           lv_label_get_text(ui_lblBit4));
-  snprintf(secondFive, sizeof(secondFive), "%s%s%s%s%s",
-           lv_label_get_text(ui_lblBit5), lv_label_get_text(ui_lblBit6),
-           lv_label_get_text(ui_lblBit7), lv_label_get_text(ui_lblBit8),
-           lv_label_get_text(ui_lblBit9));
+  switch (type) {
+    case 0: { // Type A — DIP switches
+      char firstFive[6], secondFive[6];
+      snprintf(firstFive, sizeof(firstFive), "%s%s%s%s%s",
+               lv_label_get_text(ui_lblBit0), lv_label_get_text(ui_lblBit1),
+               lv_label_get_text(ui_lblBit2), lv_label_get_text(ui_lblBit3),
+               lv_label_get_text(ui_lblBit4));
+      snprintf(secondFive, sizeof(secondFive), "%s%s%s%s%s",
+               lv_label_get_text(ui_lblBit5), lv_label_get_text(ui_lblBit6),
+               lv_label_get_text(ui_lblBit7), lv_label_get_text(ui_lblBit8),
+               lv_label_get_text(ui_lblBit9));
+      SUBGHZ.switchOff(firstFive, secondFive);
+      snprintf(txBuf, sizeof(txBuf), "TX OFF A: %s%s", firstFive, secondFive);
+      break;
+    }
+    case 1: { // Type B — Rotary
+      int addr = lv_dropdown_get_selected(ui_ddlTypeBAddr) + 1;
+      int chan = lv_dropdown_get_selected(ui_ddlTypeBChan) + 1;
+      SUBGHZ.switchOffB(addr, chan);
+      snprintf(txBuf, sizeof(txBuf), "TX OFF B: Addr=%d Ch=%d", addr, chan);
+      break;
+    }
+    case 2: { // Type C — Intertechno
+      char family = 'a' + lv_dropdown_get_selected(ui_ddlTypeCFamily);
+      int group = lv_dropdown_get_selected(ui_ddlTypeCGroup) + 1;
+      int device = lv_dropdown_get_selected(ui_ddlTypeCDevice) + 1;
+      SUBGHZ.switchOffC(family, group, device);
+      snprintf(txBuf, sizeof(txBuf), "TX OFF C: %c G%d D%d", family, group, device);
+      break;
+    }
+    case 3: { // Type D — REV
+      char group = 'A' + lv_dropdown_get_selected(ui_ddlTypeDGroup);
+      int device = lv_dropdown_get_selected(ui_ddlTypeDDevice) + 1;
+      SUBGHZ.switchOffD(group, device);
+      snprintf(txBuf, sizeof(txBuf), "TX OFF D: Grp=%c Dev=%d", group, device);
+      break;
+    }
+  }
+
+  SUBGHZ.disableTransmit();
+  lv_label_set_text(ui_lblRCSWStatus, txBuf);
+  Print_Debug(txBuf);
+}
+
+// ---------------------------------------------------------------------
+// void event_raw_tx_send(lv_event_t *e) — send arbitrary RCSwitch code
+// ---------------------------------------------------------------------
+void event_raw_tx_send(lv_event_t *e)
+{
+  Print_Debug("event_raw_tx_send");
+
+  // Read frequency and set CC1101
+  float freq = atof(lv_textarea_get_text(ui_txtRawFreq));
+  SUBGHZ.setFrequency(freq);
+
+  unsigned long code = strtoul(lv_textarea_get_text(ui_txtRawCode), NULL, 10);
+  unsigned int bitLen = atoi(lv_textarea_get_text(ui_txtRawBitLen));
+  int pulseLen = atoi(lv_textarea_get_text(ui_txtRawPulseLen));
+  int proto = lv_dropdown_get_selected(ui_ddlRawProtocol) + 1; // dropdown 0-indexed, protocols 1-indexed
+
+  // Repeat: dropdown options are "1\n5\n10\n15\n20\n50"
+  static const int repeatValues[] = {1, 5, 10, 15, 20, 50};
+  int repeatIdx = lv_dropdown_get_selected(ui_ddlRawRepeat);
+  int repeat = repeatValues[repeatIdx < 6 ? repeatIdx : 2];
+
+  // Validate
+  if (code == 0 && strcmp(lv_textarea_get_text(ui_txtRawCode), "0") != 0) {
+    lv_label_set_text(ui_lblRawStatus, "Invalid code!");
+    return;
+  }
+  if (bitLen < 1 || bitLen > 32) {
+    lv_label_set_text(ui_lblRawStatus, "Bits must be 1-32");
+    return;
+  }
 
   SUBGHZ.enableTransmit();
-  SUBGHZ.switchOff(firstFive, secondFive);
+  SUBGHZ.sendRaw(code, bitLen, proto, pulseLen, repeat);
   SUBGHZ.disableTransmit();
 
-  char txBuf[32];
-  snprintf(txBuf, sizeof(txBuf), "TX OFF: %s%s", firstFive, secondFive);
-  lv_label_set_text(ui_lblRCSWStatus, txBuf);
-
-  char dbgBuf[96];
-  snprintf(dbgBuf, sizeof(dbgBuf), "Send switch OFF, value: %s%s - Frequency: %.2f mHz", firstFive, secondFive, freq);
-  Print_Debug(dbgBuf);
+  char statusBuf[64];
+  snprintf(statusBuf, sizeof(statusBuf), "TX: %lu (%dbit) P%d", code, bitLen, proto);
+  lv_label_set_text(ui_lblRawStatus, statusBuf);
+  Print_Debug(statusBuf);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2293,6 +2396,17 @@ void fcnTouchTunes(lv_event_t * e)
   Print_Debug("event_load_screen_touchtunes");
   currentState = STATE_IDLE;
   lv_scr_load(ui_scrTouchTunes);
+}
+
+// ---------------------------------------------------------------------
+// void event_load_remote_screen(lv_event_t * e);
+// ---------------------------------------------------------------------
+void event_load_remote_screen(lv_event_t * e)
+{
+  Print_Debug("event_load_remote_screen");
+  currentState = STATE_IDLE;
+  remote_refreshProfileList();
+  lv_scr_load(ui_scrRemote);
 }
 
 // ---------------------------------------------------------------------

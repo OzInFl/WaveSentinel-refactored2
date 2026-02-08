@@ -60,8 +60,20 @@ public:
   void enableScanner(float start, float stop);
   void disableScanner();
 
+  // Type A (10-pole DIP)
   void switchOn(const char *sGroup, const char *sDevice);
   void switchOff(const char *sGroup, const char *sDevice);
+  // Type B (Rotary): address 1-4, channel 1-4
+  void switchOnB(int nAddress, int nChannel);
+  void switchOffB(int nAddress, int nChannel);
+  // Type C (Intertechno): family a-f, group 1-4, device 1-4
+  void switchOnC(char sFamily, int nGroup, int nDevice);
+  void switchOffC(char sFamily, int nGroup, int nDevice);
+  // Type D (REV): group A-D, device 1-3
+  void switchOnD(char sGroup, int nDevice);
+  void switchOffD(char sGroup, int nDevice);
+  // Raw code send
+  void sendRaw(unsigned long code, unsigned int bitLength, int protocol, int pulseLength, int repeatCount);
 
   void sendLastSignal();
   bool send_tesla();

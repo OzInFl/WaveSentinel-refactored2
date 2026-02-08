@@ -43,6 +43,7 @@ enum WaveSentinelState
   STATE_BLE_SCAN_INIT,   // Deferred BLE init for scanner
   STATE_BLE_SCAN_RUN,    // BLE scanning in progress
   STATE_WIFI_CONNECTING, // WiFi STA connection in progress
+  STATE_SEND_REMOTE,     // Universal Remote: send .sub file
 };
 
 // Current State
@@ -55,6 +56,8 @@ static lv_obj_t *keyboardProtocolAnalyzer = NULL;
 static lv_obj_t *keyboardRCSW = NULL;
 static lv_obj_t *keyboardCC1101Stuff = NULL;
 static lv_obj_t *keyboardSaveCapture = NULL;
+static lv_obj_t *keyboardRawTx = NULL;
+static lv_obj_t *rawTxFocusedTextarea = NULL;  // tracks which RAW TX textarea is active
 
 static const char *mapNum[] = {"1", "2", "3", "\n",
                                      "4", "5", "6", "\n",
@@ -204,6 +207,85 @@ void event_keyboard_rcsw(lv_event_t *e)
       }
       lv_obj_clear_state(ui_txt10PoleFreq, LV_STATE_FOCUSED);
       lv_indev_reset(NULL, ui_txt10PoleFreq);
+      lv_label_set_text(ui_lblRCSWFreqKeyboardValueUnits, "");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// void KeyboardRawTx(lv_event_t * e) — btnmatrix callback for RAW TX
+// ---------------------------------------------------------------------
+static void KeyboardRawTx(lv_event_t *e)
+{
+  Print_Debug("KeyboardRawTx");
+  if (rawTxFocusedTextarea == NULL) return;
+
+  lv_obj_t *obj = lv_event_get_target(e);
+  lv_textarea_set_cursor_pos(rawTxFocusedTextarea, 100);
+
+  const char *txt = lv_btnmatrix_get_btn_text(obj, lv_btnmatrix_get_selected_btn(obj));
+
+  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+  {
+    lv_textarea_del_char(rawTxFocusedTextarea);
+    lv_label_set_text(ui_lblRCSWFreqKeyboardValueUnits, lv_textarea_get_text(rawTxFocusedTextarea));
+  }
+  else if (strcmp(txt, LV_SYMBOL_OK) == 0)
+  {
+    lv_res_t res = lv_event_send(rawTxFocusedTextarea, LV_EVENT_READY, NULL);
+    if (res != LV_RES_OK) return;
+    vTaskDelay(1);
+  }
+  else
+  {
+    lv_textarea_add_text(rawTxFocusedTextarea, txt);
+    lv_label_set_text(ui_lblRCSWFreqKeyboardValueUnits, lv_textarea_get_text(rawTxFocusedTextarea));
+  }
+}
+
+// ---------------------------------------------------------------------
+// void event_keyboard_raw_tx(lv_event_t * e) — show/hide keyboard for RAW TX textareas
+// ---------------------------------------------------------------------
+void event_keyboard_raw_tx(lv_event_t *e)
+{
+  Print_Debug("event_keyboard_raw_tx");
+  if (currentState == STATE_IDLE)
+  {
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t *target = lv_event_get_target(e);
+
+    if (code == LV_EVENT_FOCUSED)
+    {
+      rawTxFocusedTextarea = target;
+      lv_textarea_set_cursor_click_pos(target, false);
+      lv_label_set_text(ui_lblRCSWFreqKeyboardValueUnits, lv_textarea_get_text(target));
+      lv_obj_clear_flag(ui_panelRCSWFreqKeyboard, LV_OBJ_FLAG_HIDDEN);
+
+      if (keyboardRawTx == NULL) {
+        keyboardRawTx = lv_btnmatrix_create(lv_scr_act());
+        lv_obj_set_size(keyboardRawTx, 320, 315);
+        lv_obj_set_style_bg_color(keyboardRawTx, lv_color_hex(0x000000), LV_PART_MAIN);
+        lv_obj_set_style_border_color(keyboardRawTx, lv_color_hex(0x000000), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(keyboardRawTx, lv_color_hex(0xF0F0F0), LV_PART_ITEMS);
+        lv_obj_align(keyboardRawTx, LV_ALIGN_CENTER, 0, 33);
+        lv_obj_add_event_cb(keyboardRawTx, KeyboardRawTx, LV_EVENT_VALUE_CHANGED, NULL);
+        lv_obj_clear_flag(keyboardRawTx, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_btnmatrix_set_map(keyboardRawTx, mapNum);
+      }
+      lv_obj_clear_flag(keyboardRawTx, LV_OBJ_FLAG_HIDDEN);
+    }
+    else if (code == LV_EVENT_READY)
+    {
+      lv_obj_add_flag(ui_panelRCSWFreqKeyboard, LV_OBJ_FLAG_HIDDEN);
+      if (keyboardRawTx != NULL) {
+        lv_obj_del(keyboardRawTx);
+        keyboardRawTx = NULL;
+      }
+      if (rawTxFocusedTextarea != NULL) {
+        lv_obj_clear_state(rawTxFocusedTextarea, LV_STATE_FOCUSED);
+        lv_indev_reset(NULL, rawTxFocusedTextarea);
+      }
+      rawTxFocusedTextarea = NULL;
       lv_label_set_text(ui_lblRCSWFreqKeyboardValueUnits, "");
     }
   }
