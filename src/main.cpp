@@ -27,6 +27,8 @@
 #include "Display/TouchTunesScreen.h"
 #include "Display/RemoteScreen.h"
 #include "Display/StatusBar.h"
+#include "IR/IRTransmit.h"
+#include "IR/FlipperIRFile.h"
 
 #include "Arduino.h"
 #include "Audio.h"
@@ -181,6 +183,9 @@ void setup()
 
   // Build dynamic Universal Remote screen
   remote_screen_init();
+
+  // Initialize IR transmitter on GPIO 21
+  IR_TX.init();
 
   // Wire the TouchTunes button (not wired in SquareLine)
   lv_obj_add_event_cb(ui_btnMainTTunes, fcnTouchTunes, LV_EVENT_CLICKED, NULL);
@@ -579,6 +584,51 @@ void loop()
         lv_label_set_text(remote_lblStatus, msg);
       } else {
         lv_label_set_text(remote_lblStatus, "Error: file not found");
+      }
+      xSemaphoreGive(lvgl_mutex);
+    }
+
+    currentState = STATE_IDLE;
+  }
+  else if (currentState == STATE_SEND_IR)
+  {
+    Print_Debug("Sending IR command");
+
+    bool ok = false;
+    if (sd_card_is_present()) {
+      FlipperIRSignal sig;
+      const char *sigName = remote_pendingSignalName[0] ? remote_pendingSignalName : NULL;
+
+      // If no signal name specified, use first signal in file
+      if (!sigName) {
+        IRFileIndex idx;
+        if (ir_file_index(remote_pendingPath, idx) && idx.count > 0) {
+          sigName = idx.names[0];
+        }
+      }
+
+      if (sigName && ir_file_read_signal(remote_pendingPath, sigName, sig)) {
+        now_close_sd_card();
+
+        char dbg[128];
+        snprintf(dbg, sizeof(dbg), "IR TX: signal=%s raw=%d freq=%u file=%s",
+                 sig.name, sig.isRaw, sig.frequency, remote_pendingPath);
+        Print_Debug(dbg);
+
+        IR_TX.sendSignal(sig);
+        ok = true;
+      } else {
+        now_close_sd_card();
+      }
+    }
+
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (ok) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "IR Sent: %s", rb_displayNames[remote_pendingBtnId]);
+        lv_label_set_text(remote_lblStatus, msg);
+      } else {
+        lv_label_set_text(remote_lblStatus, "Error: IR file not found");
       }
       xSemaphoreGive(lvgl_mutex);
     }

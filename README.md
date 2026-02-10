@@ -5,8 +5,8 @@
 <h1 align="center">WaveSentinel</h1>
 
 <p align="center">
-  <strong>Sub-GHz &middot; WiFi &middot; Bluetooth Testing Tool</strong><br>
-  ESP32-S3 + WT32-SC01-PLUS + CC1101
+  <strong>Sub-GHz &middot; IR &middot; WiFi &middot; Bluetooth Testing Tool</strong><br>
+  ESP32-S3 + WT32-SC01-PLUS + CC1101 + IR LED
 </p>
 
 <p align="center">
@@ -38,8 +38,13 @@ Flash WaveSentinel directly from your browser — no tools required.
 - **Tesla Charge Port** — US and EU signal emulation
 - **RCSwitch Types A–D** — DIP switch, rotary/sliding, Intertechno, and REV remote control transmit
 - **RAW TX** — Send raw codes with configurable frequency, bit length, pulse length, protocol, and repeat count
-- **Universal Remote** — 35-button programmable remote (Numbers, Nav, Media tabs). Assign any .sub file to any button, save/load profiles to SD card
+- **Universal Remote** — 35-button programmable remote (Numbers, Nav, Media tabs). Assign any .sub (RF) or .ir (IR) file to any button, save/load profiles to SD card. Brand browser with category/brand/file/signal dropdowns for Flipper-IRDB files
 - **Full CC1101 Config** — Frequency, modulation, bandwidth, deviation, data rate, TX power, sync mode, packet format
+
+### Infrared (IR)
+- **IR Transmit** — Send IR signals via LED on GPIO 21 (NEC, Samsung, Sony, RC5, RC6, Panasonic, LG, JVC, Sharp + raw)
+- **Flipper .ir Compatible** — Load and transmit Flipper Zero IR files from SD card (parsed and raw signal types)
+- **Brand Browser** — Navigate IR files by category and brand (e.g., TVs → Samsung → Power). Supports Flipper-IRDB folder structure
 
 ### WiFi
 - **Network Scanner** — Scan and inspect nearby access points
@@ -70,6 +75,7 @@ Flash WaveSentinel directly from your browser — no tools required.
 | **Display** | WT32-SC01-PLUS — 3.5" 480x320 ST7796 IPS |
 | **Touch** | FT5x06 Capacitive |
 | **RF** | CC1101 (300-928 MHz) on SPI |
+| **IR** | IR LED on GPIO 21 |
 | **Memory** | 8 MB PSRAM + 16 MB Flash |
 | **Storage** | microSD via dedicated SPI bus |
 | **Audio** | I2S DAC (GPIO 36/35/37) |
@@ -81,6 +87,7 @@ Flash WaveSentinel directly from your browser — no tools required.
 ```
 CC1101:  MISO=11  MOSI=10  SCLK=14  CS=12  GDO0=13   (SPI2/FSPI)
 SD Card: MISO=38  MOSI=40  SCLK=39  CS=41             (SPI3/HSPI)
+IR LED:  GPIO=21
 I2S:     BCLK=36  LRC=35   DOUT=37
 Display: 8-bit parallel bus  RST=4  BL=45
 Touch:   SDA=6  SCL=5  INT=7  (I2C @ 0x38)
@@ -115,7 +122,7 @@ Core 0: LVGL display refresh (5ms timer)
 Core 1: Main loop state machine — RF, WiFi, BLE operations
 ```
 
-All LVGL calls from Core 1 are protected by a FreeRTOS mutex. The state machine in `main.cpp` drives 23 operational states across RF capture/playback, WiFi scanning/attack, BLE operations, universal remote, and more.
+All LVGL calls from Core 1 are protected by a FreeRTOS mutex. The state machine in `main.cpp` drives 24 operational states across RF capture/playback, IR transmit, WiFi scanning/attack, BLE operations, universal remote, and more.
 
 ---
 
@@ -126,6 +133,7 @@ All LVGL calls from Core 1 are protected by a FreeRTOS mutex. The state machine 
 | Framework | Arduino + ESP-IDF (PlatformIO) |
 | Display | LovyanGFX + LVGL 8.3 |
 | RF | ELECHOUSE CC1101 + RCSwitch |
+| IR | IRremoteESP8266 (GPIO 21 via RMT) |
 | BLE | NimBLE-Arduino |
 | WiFi | ESP-IDF WiFi (promiscuous + raw TX) |
 | Storage | SD (SPI) + NVS Preferences |

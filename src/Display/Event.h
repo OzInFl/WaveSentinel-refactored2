@@ -43,7 +43,8 @@ enum WaveSentinelState
   STATE_BLE_SCAN_INIT,   // Deferred BLE init for scanner
   STATE_BLE_SCAN_RUN,    // BLE scanning in progress
   STATE_WIFI_CONNECTING, // WiFi STA connection in progress
-  STATE_SEND_REMOTE,     // Universal Remote: send .sub file
+  STATE_SEND_REMOTE,     // Universal Remote: send .sub file (RF via CC1101)
+  STATE_SEND_IR,         // Universal Remote: send .ir file (IR via LED)
 };
 
 // Current State

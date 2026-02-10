@@ -6,11 +6,13 @@
 #include <SD.h>
 #include "SD/SDCard.h"
 #include "Display/Event.h"
+#include "IR/FlipperIRFile.h"
 
 // =====================================================================
-// Dynamic LVGL screen for Universal Remote (Programmable .sub buttons)
+// Dynamic LVGL screen for Universal Remote (Programmable .sub/.ir buttons)
 // Created programmatically (no SquareLine Studio)
-// Each button maps to a Flipper .sub file; profiles saved to SD card.
+// Each button maps to a Flipper .sub (RF) or .ir (IR) file.
+// Profiles saved to SD card.
 // =====================================================================
 
 // --- Button ID enum ---
@@ -48,7 +50,7 @@ static const char *rb_displayNames[] = {
 };
 
 // --- Profile data ---
-#define RB_MAX_PATH 64
+#define RB_MAX_PATH 96
 #define RB_MAX_NAME 32
 
 typedef struct {
@@ -59,6 +61,7 @@ typedef struct {
 static RemoteProfile remoteProfile;
 static char remote_pendingPath[RB_MAX_PATH];
 static uint8_t remote_pendingBtnId = 0;
+static char remote_pendingSignalName[IR_SIG_NAME_LEN] = {0};
 
 // --- Screen widgets ---
 static lv_obj_t *ui_scrRemote = NULL;
@@ -76,6 +79,10 @@ static lv_obj_t *remote_pickerPanel = NULL;
 static lv_obj_t *remote_pickerTitle = NULL;
 static lv_obj_t *remote_pickerDdlFolder = NULL;
 static lv_obj_t *remote_pickerDdlFile = NULL;
+static lv_obj_t *remote_pickerLblBrand = NULL;
+static lv_obj_t *remote_pickerDdlBrand = NULL;
+static lv_obj_t *remote_pickerLblSignal = NULL;
+static lv_obj_t *remote_pickerDdlSignal = NULL;
 static uint8_t remote_assigningBtnId = 0;
 
 // --- New profile keyboard overlay ---
@@ -94,6 +101,8 @@ static void remote_picker_assign_cb(lv_event_t *e);
 static void remote_picker_clear_cb(lv_event_t *e);
 static void remote_picker_cancel_cb(lv_event_t *e);
 static void remote_picker_folder_cb(lv_event_t *e);
+static void remote_picker_brand_cb(lv_event_t *e);
+static void remote_picker_file_cb(lv_event_t *e);
 static void remote_name_ready_cb(lv_event_t *e);
 static void remote_name_cancel_cb(lv_event_t *e);
 static void remote_saveProfile(void);
@@ -249,8 +258,15 @@ static void remote_updateButtonStyles(void) {
             lv_obj_set_style_border_opa(remote_btnObjs[i], 255, LV_PART_MAIN);
             lv_obj_set_style_bg_opa(remote_btnObjs[i], 255, LV_PART_MAIN);
         } else if (assigned) {
-            // Normal, assigned: cyan border
-            lv_obj_set_style_border_color(remote_btnObjs[i], lv_color_hex(0x00AFFF), LV_PART_MAIN);
+            // Determine IR vs RF from path
+            const char *path = remoteProfile.paths[i];
+            const char *hash = strchr(path, '#');
+            int checkLen = hash ? (int)(hash - path) : (int)strlen(path);
+            bool isIR = (checkLen >= 3 && strncmp(path + checkLen - 3, ".ir", 3) == 0);
+
+            // Cyan for RF (.sub), purple for IR (.ir)
+            uint32_t borderColor = isIR ? 0xCC00FF : 0x00AFFF;
+            lv_obj_set_style_border_color(remote_btnObjs[i], lv_color_hex(borderColor), LV_PART_MAIN);
             lv_obj_set_style_border_opa(remote_btnObjs[i], 200, LV_PART_MAIN);
             lv_obj_set_style_bg_opa(remote_btnObjs[i], 255, LV_PART_MAIN);
         } else {
@@ -263,6 +279,108 @@ static void remote_updateButtonStyles(void) {
 }
 
 // =====================================================================
+// File Picker Helpers
+// =====================================================================
+
+// Recursively list directories up to maxDepth levels for the folder dropdown
+// Produces entries like "ir", "ir/TVs", "remotes/ir/TVs" etc.
+// Must be called within sd_card_is_present() block
+static void remote_picker_listFoldersR(lv_obj_t *ddl, const char *basePath,
+                                        const char *prefix, int depth, int maxDepth, int *count) {
+    if (depth > maxDepth || *count >= 40) return;
+
+    File dir = SD.open(basePath);
+    if (!dir || !dir.isDirectory()) return;
+
+    File f = dir.openNextFile();
+    while (f && *count < 40) {
+        if (f.isDirectory()) {
+            const char *name = sd_basename(f.name());
+            char displayName[96];
+            if (prefix[0] == '\0')
+                snprintf(displayName, sizeof(displayName), "%s", name);
+            else
+                snprintf(displayName, sizeof(displayName), "%s/%s", prefix, name);
+
+            lv_dropdown_add_option(ddl, displayName, LV_DROPDOWN_POS_LAST);
+            (*count)++;
+
+            // Recurse into subdirectories
+            char subPath[128];
+            snprintf(subPath, sizeof(subPath), "%s/%s", basePath, name);
+            remote_picker_listFoldersR(ddl, subPath, displayName, depth + 1, maxDepth, count);
+        }
+        f = dir.openNextFile();
+    }
+    dir.close();
+}
+
+static void remote_picker_listFolders(lv_obj_t *ddl) {
+    lv_dropdown_clear_options(ddl);
+    lv_dropdown_add_option(ddl, "/", LV_DROPDOWN_POS_LAST);
+    int count = 1;
+    remote_picker_listFoldersR(ddl, "/", "", 1, 3, &count);
+}
+
+// Build the current browsing directory path from folder + optional brand
+static void remote_picker_getDir(char *out, size_t outLen) {
+    char folderBuf[64];
+    lv_dropdown_get_selected_str(remote_pickerDdlFolder, folderBuf, sizeof(folderBuf));
+
+    if (!lv_obj_has_flag(remote_pickerDdlBrand, LV_OBJ_FLAG_HIDDEN)) {
+        char brandBuf[64];
+        lv_dropdown_get_selected_str(remote_pickerDdlBrand, brandBuf, sizeof(brandBuf));
+        if (strcmp(folderBuf, "/") == 0)
+            snprintf(out, outLen, "/%s", brandBuf);
+        else
+            snprintf(out, outLen, "/%s/%s", folderBuf, brandBuf);
+    } else {
+        if (strcmp(folderBuf, "/") == 0)
+            snprintf(out, outLen, "/");
+        else
+            snprintf(out, outLen, "/%s", folderBuf);
+    }
+}
+
+// Check if folder has subdirectories; populate brand dropdown if so
+// Must be called within sd_card_is_present() block
+static bool remote_picker_checkBrands(const char *folderPath) {
+    File root = SD.open(folderPath);
+    if (!root || !root.isDirectory()) return false;
+
+    lv_dropdown_clear_options(remote_pickerDdlBrand);
+    bool found = false;
+    File f = root.openNextFile();
+    while (f) {
+        if (f.isDirectory()) {
+            lv_dropdown_add_option(remote_pickerDdlBrand, sd_basename(f.name()), LV_DROPDOWN_POS_LAST);
+            found = true;
+        }
+        f = root.openNextFile();
+    }
+    root.close();
+
+    if (found) {
+        lv_obj_clear_flag(remote_pickerDdlBrand, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(remote_pickerLblBrand, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(remote_pickerDdlBrand, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(remote_pickerLblBrand, LV_OBJ_FLAG_HIDDEN);
+    }
+    return found;
+}
+
+// Populate the file dropdown from the current dir (folder + brand if visible)
+// Must be called within sd_card_is_present() block
+static void remote_picker_refreshFiles(void) {
+    lv_dropdown_clear_options(remote_pickerDdlFile);
+    char dirPath[96];
+    remote_picker_getDir(dirPath, sizeof(dirPath));
+    refresh_sd_card_file(remote_pickerDdlFile, dirPath, ".sub", true);
+    refresh_sd_card_file(remote_pickerDdlFile, dirPath, ".ir", false);
+}
+
+// =====================================================================
 // File Picker Overlay
 // =====================================================================
 static void remote_showPicker(uint8_t btnId) {
@@ -272,23 +390,27 @@ static void remote_showPicker(uint8_t btnId) {
     snprintf(title, sizeof(title), "Assign: %s", rb_displayNames[btnId]);
     lv_label_set_text(remote_pickerTitle, title);
 
-    // Populate folder dropdown
+    // Populate folder dropdown (3 levels deep for /ir/Category/Brand structure)
     if (sd_card_is_present()) {
-        lv_dropdown_clear_options(remote_pickerDdlFolder);
-        refresh_sd_card_folder(remote_pickerDdlFolder, "/");
-        // Populate file dropdown from first folder
-        lv_dropdown_clear_options(remote_pickerDdlFile);
+        remote_picker_listFolders(remote_pickerDdlFolder);
+
+        // Check if selected folder has brand subfolders
         char folderBuf[64];
         lv_dropdown_get_selected_str(remote_pickerDdlFolder, folderBuf, sizeof(folderBuf));
         char folderPath[72];
-        if (strcmp(folderBuf, "/") == 0) {
+        if (strcmp(folderBuf, "/") == 0)
             snprintf(folderPath, sizeof(folderPath), "/");
-        } else {
+        else
             snprintf(folderPath, sizeof(folderPath), "/%s", folderBuf);
-        }
-        refresh_sd_card_file(remote_pickerDdlFile, folderPath, ".sub", true);
+
+        remote_picker_checkBrands(folderPath);
+        remote_picker_refreshFiles();
         now_close_sd_card();
     }
+
+    // Hide signal and brand-related dropdowns initially as needed
+    lv_obj_add_flag(remote_pickerDdlSignal, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(remote_pickerLblSignal, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_clear_flag(remote_pickerPanel, LV_OBJ_FLAG_HIDDEN);
 }
@@ -304,25 +426,80 @@ static void remote_picker_folder_cb(lv_event_t *e) {
     lv_dropdown_get_selected_str(remote_pickerDdlFolder, folderBuf, sizeof(folderBuf));
 
     char folderPath[72];
-    if (strcmp(folderBuf, "/") == 0) {
+    if (strcmp(folderBuf, "/") == 0)
         snprintf(folderPath, sizeof(folderPath), "/");
-    } else {
+    else
         snprintf(folderPath, sizeof(folderPath), "/%s", folderBuf);
-    }
 
     if (sd_card_is_present()) {
-        lv_dropdown_clear_options(remote_pickerDdlFile);
-        refresh_sd_card_file(remote_pickerDdlFile, folderPath, ".sub", true);
+        remote_picker_checkBrands(folderPath);
+        remote_picker_refreshFiles();
         now_close_sd_card();
+    }
+
+    // Hide signal dropdown when folder changes
+    lv_obj_add_flag(remote_pickerDdlSignal, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(remote_pickerLblSignal, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void remote_picker_brand_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+
+    if (sd_card_is_present()) {
+        remote_picker_refreshFiles();
+        now_close_sd_card();
+    }
+
+    // Hide signal dropdown when brand changes
+    lv_obj_add_flag(remote_pickerDdlSignal, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(remote_pickerLblSignal, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void remote_picker_file_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+
+    char fileBuf[64];
+    lv_dropdown_get_selected_str(remote_pickerDdlFile, fileBuf, sizeof(fileBuf));
+
+    size_t len = strlen(fileBuf);
+    bool isIR = (len >= 3 && strcmp(fileBuf + len - 3, ".ir") == 0);
+
+    if (isIR) {
+        // Build full path from dir (folder+brand) + file
+        char dirPath[96];
+        remote_picker_getDir(dirPath, sizeof(dirPath));
+        char fullPath[RB_MAX_PATH];
+        if (dirPath[0] == '/' && dirPath[1] == '\0')
+            snprintf(fullPath, sizeof(fullPath), "/%s", fileBuf);
+        else
+            snprintf(fullPath, sizeof(fullPath), "%s/%s", dirPath, fileBuf);
+
+        if (sd_card_is_present()) {
+            IRFileIndex idx;
+            if (ir_file_index(fullPath, idx)) {
+                lv_dropdown_clear_options(remote_pickerDdlSignal);
+                for (int i = 0; i < idx.count; i++) {
+                    lv_dropdown_add_option(remote_pickerDdlSignal, idx.names[i], LV_DROPDOWN_POS_LAST);
+                }
+                lv_obj_clear_flag(remote_pickerDdlSignal, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(remote_pickerLblSignal, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(remote_pickerDdlSignal, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(remote_pickerLblSignal, LV_OBJ_FLAG_HIDDEN);
+            }
+            now_close_sd_card();
+        }
+    } else {
+        lv_obj_add_flag(remote_pickerDdlSignal, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(remote_pickerLblSignal, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
 static void remote_picker_assign_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
 
-    // Build full path from folder + file
-    char folderBuf[64], fileBuf[64];
-    lv_dropdown_get_selected_str(remote_pickerDdlFolder, folderBuf, sizeof(folderBuf));
+    // Build full path from dir (folder+brand) + file
+    char fileBuf[64];
     lv_dropdown_get_selected_str(remote_pickerDdlFile, fileBuf, sizeof(fileBuf));
 
     if (fileBuf[0] == '\0') {
@@ -331,18 +508,33 @@ static void remote_picker_assign_cb(lv_event_t *e) {
         return;
     }
 
-    char fullPath[RB_MAX_PATH];
-    if (strcmp(folderBuf, "/") == 0) {
-        snprintf(fullPath, sizeof(fullPath), "/%s", fileBuf);
-    } else {
-        snprintf(fullPath, sizeof(fullPath), "/%s/%s", folderBuf, fileBuf);
-    }
+    char dirPath[96];
+    remote_picker_getDir(dirPath, sizeof(dirPath));
 
-    strncpy(remoteProfile.paths[remote_assigningBtnId], fullPath, RB_MAX_PATH - 1);
+    char fullPath[RB_MAX_PATH];
+    if (dirPath[0] == '/' && dirPath[1] == '\0')
+        snprintf(fullPath, sizeof(fullPath), "/%s", fileBuf);
+    else
+        snprintf(fullPath, sizeof(fullPath), "%s/%s", dirPath, fileBuf);
+
+    // For .ir files, append #signalname
+    size_t pathLen = strlen(fullPath);
+    bool isIR = (pathLen >= 3 && strcmp(fullPath + pathLen - 3, ".ir") == 0);
+
+    if (isIR && !lv_obj_has_flag(remote_pickerDdlSignal, LV_OBJ_FLAG_HIDDEN)) {
+        char sigBuf[IR_SIG_NAME_LEN];
+        lv_dropdown_get_selected_str(remote_pickerDdlSignal, sigBuf, sizeof(sigBuf));
+        char combined[RB_MAX_PATH];
+        snprintf(combined, sizeof(combined), "%s#%s", fullPath, sigBuf);
+        strncpy(remoteProfile.paths[remote_assigningBtnId], combined, RB_MAX_PATH - 1);
+    } else {
+        strncpy(remoteProfile.paths[remote_assigningBtnId], fullPath, RB_MAX_PATH - 1);
+    }
     remoteProfile.paths[remote_assigningBtnId][RB_MAX_PATH - 1] = '\0';
 
     char msg[80];
-    snprintf(msg, sizeof(msg), "%s = %s", rb_displayNames[remote_assigningBtnId], sd_basename(fullPath));
+    snprintf(msg, sizeof(msg), "%s = %s%s", rb_displayNames[remote_assigningBtnId],
+             isIR ? "IR:" : "", sd_basename(fullPath));
     lv_label_set_text(remote_lblStatus, msg);
 
     remote_hidePicker();
@@ -384,10 +576,25 @@ static void remote_btn_event_cb(lv_event_t *e) {
             strncpy(remote_pendingPath, remoteProfile.paths[btnId], sizeof(remote_pendingPath) - 1);
             remote_pendingPath[sizeof(remote_pendingPath) - 1] = '\0';
             remote_pendingBtnId = btnId;
-            currentState = STATE_SEND_REMOTE;
+
+            // Split path#signal at '#' for .ir files
+            char *hashPos = strchr(remote_pendingPath, '#');
+            if (hashPos) {
+                strncpy(remote_pendingSignalName, hashPos + 1, IR_SIG_NAME_LEN - 1);
+                remote_pendingSignalName[IR_SIG_NAME_LEN - 1] = '\0';
+                *hashPos = '\0';  // truncate path at '#'
+            } else {
+                remote_pendingSignalName[0] = '\0';
+            }
+
+            // Route based on file extension
+            size_t plen = strlen(remote_pendingPath);
+            bool isIR = (plen >= 3 && strcmp(remote_pendingPath + plen - 3, ".ir") == 0);
+            currentState = isIR ? STATE_SEND_IR : STATE_SEND_REMOTE;
 
             char msg[48];
-            snprintf(msg, sizeof(msg), "Sending %s...", rb_displayNames[btnId]);
+            snprintf(msg, sizeof(msg), "%s %s...",
+                     isIR ? "IR Sending" : "Sending", rb_displayNames[btnId]);
             lv_label_set_text(remote_lblStatus, msg);
         } else {
             char msg[48];
@@ -797,9 +1004,9 @@ static void remote_screen_init(void) {
 
     // ======================= FILE PICKER OVERLAY =======================
     remote_pickerPanel = lv_obj_create(ui_scrRemote);
-    lv_obj_set_size(remote_pickerPanel, 290, 290);
+    lv_obj_set_size(remote_pickerPanel, 290, 350);
     lv_obj_set_align(remote_pickerPanel, LV_ALIGN_CENTER);
-    lv_obj_set_y(remote_pickerPanel, -20);
+    lv_obj_set_y(remote_pickerPanel, -10);
     lv_obj_clear_flag(remote_pickerPanel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(remote_pickerPanel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_bg_color(remote_pickerPanel, lv_color_hex(0x0A0A1E), LV_PART_MAIN);
@@ -821,7 +1028,7 @@ static void remote_screen_init(void) {
     // Folder label + dropdown
     lv_obj_t *lblFolder = lv_label_create(remote_pickerPanel);
     lv_obj_set_x(lblFolder, -110);
-    lv_obj_set_y(lblFolder, 35);
+    lv_obj_set_y(lblFolder, 25);
     lv_obj_set_align(lblFolder, LV_ALIGN_TOP_MID);
     lv_label_set_text(lblFolder, "Folder:");
     lv_obj_set_style_text_color(lblFolder, lv_color_hex(0xCCCCCC), LV_PART_MAIN);
@@ -830,7 +1037,7 @@ static void remote_screen_init(void) {
     remote_pickerDdlFolder = lv_dropdown_create(remote_pickerPanel);
     lv_obj_set_width(remote_pickerDdlFolder, 200);
     lv_obj_set_x(remote_pickerDdlFolder, 20);
-    lv_obj_set_y(remote_pickerDdlFolder, 28);
+    lv_obj_set_y(remote_pickerDdlFolder, 18);
     lv_obj_set_align(remote_pickerDdlFolder, LV_ALIGN_TOP_MID);
     lv_dropdown_set_options(remote_pickerDdlFolder, "");
     lv_obj_set_style_text_font(remote_pickerDdlFolder, &ui_font_Verdana12, LV_PART_MAIN);
@@ -838,10 +1045,34 @@ static void remote_screen_init(void) {
     lv_obj_set_style_text_color(remote_pickerDdlFolder, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_add_event_cb(remote_pickerDdlFolder, remote_picker_folder_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
+    // Brand label + dropdown (shown when folder has subfolders, e.g. /ir/Samsung/)
+    remote_pickerLblBrand = lv_label_create(remote_pickerPanel);
+    lv_obj_set_x(remote_pickerLblBrand, -110);
+    lv_obj_set_y(remote_pickerLblBrand, 58);
+    lv_obj_set_align(remote_pickerLblBrand, LV_ALIGN_TOP_MID);
+    lv_label_set_text(remote_pickerLblBrand, "Brand:");
+    lv_obj_set_style_text_color(remote_pickerLblBrand, lv_color_hex(0xCCCCCC), LV_PART_MAIN);
+    lv_obj_set_style_text_font(remote_pickerLblBrand, &ui_font_Verdana12, LV_PART_MAIN);
+    lv_obj_add_flag(remote_pickerLblBrand, LV_OBJ_FLAG_HIDDEN);
+
+    remote_pickerDdlBrand = lv_dropdown_create(remote_pickerPanel);
+    lv_obj_set_width(remote_pickerDdlBrand, 200);
+    lv_obj_set_x(remote_pickerDdlBrand, 20);
+    lv_obj_set_y(remote_pickerDdlBrand, 51);
+    lv_obj_set_align(remote_pickerDdlBrand, LV_ALIGN_TOP_MID);
+    lv_dropdown_set_options(remote_pickerDdlBrand, "");
+    lv_obj_set_style_text_font(remote_pickerDdlBrand, &ui_font_Verdana12, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(remote_pickerDdlBrand, lv_color_hex(0x1A1A2E), LV_PART_MAIN);
+    lv_obj_set_style_text_color(remote_pickerDdlBrand, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_border_color(remote_pickerDdlBrand, lv_color_hex(0xFF9100), LV_PART_MAIN);
+    lv_obj_set_style_border_width(remote_pickerDdlBrand, 1, LV_PART_MAIN);
+    lv_obj_add_flag(remote_pickerDdlBrand, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(remote_pickerDdlBrand, remote_picker_brand_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
     // File label + dropdown
     lv_obj_t *lblFile = lv_label_create(remote_pickerPanel);
     lv_obj_set_x(lblFile, -110);
-    lv_obj_set_y(lblFile, 75);
+    lv_obj_set_y(lblFile, 91);
     lv_obj_set_align(lblFile, LV_ALIGN_TOP_MID);
     lv_label_set_text(lblFile, "File:");
     lv_obj_set_style_text_color(lblFile, lv_color_hex(0xCCCCCC), LV_PART_MAIN);
@@ -850,17 +1081,41 @@ static void remote_screen_init(void) {
     remote_pickerDdlFile = lv_dropdown_create(remote_pickerPanel);
     lv_obj_set_width(remote_pickerDdlFile, 200);
     lv_obj_set_x(remote_pickerDdlFile, 20);
-    lv_obj_set_y(remote_pickerDdlFile, 68);
+    lv_obj_set_y(remote_pickerDdlFile, 84);
     lv_obj_set_align(remote_pickerDdlFile, LV_ALIGN_TOP_MID);
     lv_dropdown_set_options(remote_pickerDdlFile, "");
     lv_obj_set_style_text_font(remote_pickerDdlFile, &ui_font_Verdana12, LV_PART_MAIN);
     lv_obj_set_style_bg_color(remote_pickerDdlFile, lv_color_hex(0x1A1A2E), LV_PART_MAIN);
     lv_obj_set_style_text_color(remote_pickerDdlFile, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_add_event_cb(remote_pickerDdlFile, remote_picker_file_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // Signal name label + dropdown (for .ir files, hidden by default)
+    remote_pickerLblSignal = lv_label_create(remote_pickerPanel);
+    lv_obj_set_x(remote_pickerLblSignal, -110);
+    lv_obj_set_y(remote_pickerLblSignal, 124);
+    lv_obj_set_align(remote_pickerLblSignal, LV_ALIGN_TOP_MID);
+    lv_label_set_text(remote_pickerLblSignal, "Signal:");
+    lv_obj_set_style_text_color(remote_pickerLblSignal, lv_color_hex(0xCCCCCC), LV_PART_MAIN);
+    lv_obj_set_style_text_font(remote_pickerLblSignal, &ui_font_Verdana12, LV_PART_MAIN);
+    lv_obj_add_flag(remote_pickerLblSignal, LV_OBJ_FLAG_HIDDEN);
+
+    remote_pickerDdlSignal = lv_dropdown_create(remote_pickerPanel);
+    lv_obj_set_width(remote_pickerDdlSignal, 200);
+    lv_obj_set_x(remote_pickerDdlSignal, 20);
+    lv_obj_set_y(remote_pickerDdlSignal, 117);
+    lv_obj_set_align(remote_pickerDdlSignal, LV_ALIGN_TOP_MID);
+    lv_dropdown_set_options(remote_pickerDdlSignal, "");
+    lv_obj_set_style_text_font(remote_pickerDdlSignal, &ui_font_Verdana12, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(remote_pickerDdlSignal, lv_color_hex(0x1A1A2E), LV_PART_MAIN);
+    lv_obj_set_style_text_color(remote_pickerDdlSignal, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_border_color(remote_pickerDdlSignal, lv_color_hex(0xCC00FF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(remote_pickerDdlSignal, 1, LV_PART_MAIN);
+    lv_obj_add_flag(remote_pickerDdlSignal, LV_OBJ_FLAG_HIDDEN);
 
     // Current assignment display
     lv_obj_t *lblCurrent = lv_label_create(remote_pickerPanel);
     lv_obj_set_x(lblCurrent, 0);
-    lv_obj_set_y(lblCurrent, 115);
+    lv_obj_set_y(lblCurrent, 155);
     lv_obj_set_align(lblCurrent, LV_ALIGN_TOP_MID);
     lv_label_set_text(lblCurrent, "");
     lv_obj_set_style_text_color(lblCurrent, lv_color_hex(0x00FFFF), LV_PART_MAIN);
@@ -871,7 +1126,7 @@ static void remote_screen_init(void) {
     lv_obj_set_width(btnAssign, 80);
     lv_obj_set_height(btnAssign, 38);
     lv_obj_set_x(btnAssign, -85);
-    lv_obj_set_y(btnAssign, 145);
+    lv_obj_set_y(btnAssign, 185);
     lv_obj_set_align(btnAssign, LV_ALIGN_TOP_MID);
     lv_obj_set_style_bg_color(btnAssign, lv_color_hex(0x006633), LV_PART_MAIN);
     lv_obj_set_style_radius(btnAssign, 6, LV_PART_MAIN);
@@ -888,7 +1143,7 @@ static void remote_screen_init(void) {
     lv_obj_set_width(btnClear, 75);
     lv_obj_set_height(btnClear, 38);
     lv_obj_set_x(btnClear, 0);
-    lv_obj_set_y(btnClear, 145);
+    lv_obj_set_y(btnClear, 185);
     lv_obj_set_align(btnClear, LV_ALIGN_TOP_MID);
     lv_obj_set_style_bg_color(btnClear, lv_color_hex(0x990000), LV_PART_MAIN);
     lv_obj_set_style_radius(btnClear, 6, LV_PART_MAIN);
@@ -905,7 +1160,7 @@ static void remote_screen_init(void) {
     lv_obj_set_width(btnCancel, 80);
     lv_obj_set_height(btnCancel, 38);
     lv_obj_set_x(btnCancel, 85);
-    lv_obj_set_y(btnCancel, 145);
+    lv_obj_set_y(btnCancel, 185);
     lv_obj_set_align(btnCancel, LV_ALIGN_TOP_MID);
     lv_obj_set_style_bg_color(btnCancel, lv_color_hex(0x444444), LV_PART_MAIN);
     lv_obj_set_style_radius(btnCancel, 6, LV_PART_MAIN);
