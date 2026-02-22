@@ -38,6 +38,7 @@ Flash WaveSentinel directly from your browser — no tools required.
 - **Tesla Charge Port** — US and EU signal emulation
 - **RCSwitch Types A–D** — DIP switch, rotary/sliding, Intertechno, and REV remote control transmit
 - **RAW TX** — Send raw codes with configurable frequency, bit length, pulse length, protocol, and repeat count
+- **TouchTunes Remote** — Wireless jukebox control with full command set
 - **Universal Remote** — 35-button programmable remote (Numbers, Nav, Media tabs). Assign any .sub (RF) or .ir (IR) file to any button, save/load profiles to SD card. Brand browser with category/brand/file/signal dropdowns for Flipper-IRDB files
 - **Full CC1101 Config** — Frequency, modulation, bandwidth, deviation, data rate, TX power, sync mode, packet format
 
