@@ -374,30 +374,24 @@ void loop()
   }
   else if (currentState == STATE_TESLA_US)
   {
-    SUBGHZ.setFrequency(310.00);
-    SUBGHZ.enableTransmit();
-    if (SUBGHZ.send_tesla())
-    {
-      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        lv_label_set_text(ui_lblPresetsStatus, "Sending US Tesla..");
-        xSemaphoreGive(lvgl_mutex);
-      }
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      lv_label_set_text(ui_lblPresetsStatus, "Sending US Tesla (315 MHz)...");
+      xSemaphoreGive(lvgl_mutex);
     }
-    SUBGHZ.disableTransmit();
+    SUBGHZ.send_tesla(315.00);  // US: 315 MHz, forces ASK/OOK + max power
     currentState = STATE_TESLA_EU;
   }
   else if (currentState == STATE_TESLA_EU)
   {
-    SUBGHZ.setFrequency(433.92);
-    SUBGHZ.enableTransmit();
-    if (SUBGHZ.send_tesla())
-    {
-      if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        lv_label_set_text(ui_lblPresetsStatus, "Sending Tesla Complete !");
-        xSemaphoreGive(lvgl_mutex);
-      }
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      lv_label_set_text(ui_lblPresetsStatus, "Sending EU Tesla (433.92 MHz)...");
+      xSemaphoreGive(lvgl_mutex);
     }
-    SUBGHZ.disableTransmit();
+    SUBGHZ.send_tesla(433.92);  // EU: 433.92 MHz, forces ASK/OOK + max power
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      lv_label_set_text(ui_lblPresetsStatus, "Tesla Complete !");
+      xSemaphoreGive(lvgl_mutex);
+    }
     currentState = STATE_IDLE;
   }
   else if (currentState == STATE_SEND_FLIPPER)

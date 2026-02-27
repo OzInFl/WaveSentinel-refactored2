@@ -932,17 +932,43 @@ char *SubGhz::dec2binWzerofill(unsigned long Dec, unsigned int bitLength)
 }
 
 // ---------------------------------------------------------------------
-// bool SubGhz::send_tesla()
+// bool SubGhz::send_tesla(float freqMhz)
+// Self-contained: forces correct CC1101 config, sends, restores settings
 // ---------------------------------------------------------------------
-bool SubGhz::send_tesla()
+bool SubGhz::send_tesla(float freqMhz)
 {
-    for (uint8_t t = 0; t < 3; t++)
+    // Save current CC1101 settings
+    float savedFreq = CC1101_MHZ;
+    int savedMod = CC1101_MODULATION;
+    int savedPkt = CC1101_PKT_FORMAT;
+    int savedSync = CC1101_SYNC_MODE;
+    int savedPA = CC1101_PA;
+
+    // Force correct settings for Tesla charge port signal
+    CC1101_MHZ = freqMhz;
+    CC1101_MODULATION = 2;   // ASK/OOK
+    CC1101_PKT_FORMAT = 3;   // Async serial mode (bit-bang GDO0)
+    CC1101_SYNC_MODE = 0;    // No preamble/sync
+    CC1101_PA = 12;           // Max TX power (+12 dBm)
+
+    SubGhz::enableTransmit();
+
+    for (uint8_t t = 0; t < 5; t++)
     {
         for (uint8_t i = 0; i < messageLength; i++)
             SubGhz::send_byte(sequence[i]);
         digitalWrite(CC1101_GDO0, LOW);
         delay(messageDistance);
     }
+
+    SubGhz::disableTransmit();
+
+    // Restore previous CC1101 settings
+    CC1101_MHZ = savedFreq;
+    CC1101_MODULATION = savedMod;
+    CC1101_PKT_FORMAT = savedPkt;
+    CC1101_SYNC_MODE = savedSync;
+    CC1101_PA = savedPA;
 
     return true;
 }

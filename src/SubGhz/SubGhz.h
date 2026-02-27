@@ -76,7 +76,7 @@ public:
   void sendRaw(unsigned long code, unsigned int bitLength, int protocol, int pulseLength, int repeatCount);
 
   void sendLastSignal();
-  bool send_tesla();
+  bool send_tesla(float freqMhz);
   void sendSamples(int samples[], int samplesLength);
   bool sendCapture();
 
