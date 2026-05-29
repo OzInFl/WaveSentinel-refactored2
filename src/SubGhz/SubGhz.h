@@ -92,6 +92,24 @@ public:
   bool ProtAnalyzerLoop();
   void ScannerLoop();
   void GeneratorLoop();
+  void initScannerScreen();
+
+  // Apply a preset's CC1101 register set to the radio. Caller should
+  // already have called ELECHOUSE_cc1101.Init() and setMHZ().
+  void applyPreset(CC1101Preset preset);
+
+  // Get a human-readable name for a preset (e.g. for dropdowns).
+  const char *presetName(CC1101Preset preset);
+
+  // --- Read RAW capture (Flipper-compatible OOK async serial RAW) ---
+  // Legacy 2-arg overload: defaults to CC1101_PRESET_OOK_650 (AM650).
+  bool     startRawCapture(float freq_mhz, const char *filename);
+  // New 3-arg form: pick any of the four canonical Flipper presets.
+  bool     startRawCapture(float freq_mhz, const char *filename, CC1101Preset preset);
+  void     stopRawCapture();
+  int      rawCaptureCount();
+  bool     rawCaptureRunning();
+  uint32_t rawCaptureLastTransitionMs();
 };
 
 #endif

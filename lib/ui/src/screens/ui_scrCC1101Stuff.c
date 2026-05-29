@@ -239,7 +239,7 @@ void ui_scrCC1101Stuff_screen_init(void)
     lv_obj_set_style_text_opa(ui_chkScanPresets, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_chkScanPresets, &ui_font_Verdana12, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_Generator = lv_tabview_add_tab(ui_tabCC1101Stuff, "PACKET GEN");
+    ui_Generator = lv_tabview_add_tab(ui_tabCC1101Stuff, "CHAOS");
 
     ui_txt1101GenFreq = lv_textarea_create(ui_Generator);
     lv_obj_set_width(ui_txt1101GenFreq, 120);
@@ -265,7 +265,7 @@ void ui_scrCC1101Stuff_screen_init(void)
     lv_obj_set_width(ui_swGenEnable, 65);
     lv_obj_set_height(ui_swGenEnable, 29);
     lv_obj_set_x(ui_swGenEnable, 0);
-    lv_obj_set_y(ui_swGenEnable, 62);
+    lv_obj_set_y(ui_swGenEnable, -30);   // moved up to clear Tesla buttons at y=220
     lv_obj_set_align(ui_swGenEnable, LV_ALIGN_CENTER);
 
     lv_obj_set_style_border_color(ui_swGenEnable, lv_color_hex(0x000000), LV_PART_KNOB | LV_STATE_DEFAULT);
@@ -276,7 +276,7 @@ void ui_scrCC1101Stuff_screen_init(void)
     lv_obj_set_width(ui_lblGenEnable, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_lblGenEnable, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_lblGenEnable, 0);
-    lv_obj_set_y(ui_lblGenEnable, 36);
+    lv_obj_set_y(ui_lblGenEnable, -58);  // moved up with the switch
     lv_obj_set_align(ui_lblGenEnable, LV_ALIGN_CENTER);
     lv_label_set_text(ui_lblGenEnable, "ON/OFF");
     lv_obj_set_style_text_color(ui_lblGenEnable, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -840,7 +840,7 @@ void ui_scrCC1101Stuff_screen_init(void)
     lv_obj_set_align(ui_btnScanBack, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_btnScanBack, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
     lv_obj_clear_flag(ui_btnScanBack, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_obj_set_style_bg_color(ui_btnScanBack, lv_color_hex(0xFFF700), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_btnScanBack, lv_color_hex(0x333355), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_btnScanBack, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_lblScanBack = lv_label_create(ui_btnScanBack);
@@ -848,7 +848,7 @@ void ui_scrCC1101Stuff_screen_init(void)
     lv_obj_set_height(ui_lblScanBack, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_lblScanBack, LV_ALIGN_CENTER);
     lv_label_set_text(ui_lblScanBack, "BACK");
-    lv_obj_set_style_text_color(ui_lblScanBack, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_lblScanBack, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_lblScanBack, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_lblScanBack, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 

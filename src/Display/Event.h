@@ -45,6 +45,36 @@ enum WaveSentinelState
   STATE_WIFI_CONNECTING, // WiFi STA connection in progress
   STATE_SEND_REMOTE,     // Universal Remote: send .sub file (RF via CC1101)
   STATE_SEND_IR,         // Universal Remote: send .ir file (IR via LED)
+  // -- Marauder extended features --
+  STATE_MAR_APSCAN,      // Active AP scan for Marauder targets screen
+  STATE_MAR_STA_SCAN,    // Promiscuous station enumeration
+  STATE_MAR_PMKID,       // EAPOL/PMKID passive capture
+  STATE_MAR_PKTGRAPH,    // Live packet-count strip chart
+  STATE_MAR_SIGMON,      // Signal monitor (per-AP RSSI)
+  STATE_MAR_CHANANA,     // Channel analyzer histogram
+  STATE_MAR_PWN,         // Pwnagotchi detection viewer
+  STATE_MAR_MACTRACK,    // MAC track (follow a station's RSSI)
+  STATE_MAR_PROBEFLOOD,  // Probe-request flood
+  STATE_MAR_RAWSNIFF,    // Raw frame header dumper
+  STATE_MAR_KARMA_LISTEN,// Karma: collect probe SSIDs
+  STATE_MAR_KARMA_CLONE, // Karma: clone collected SSIDs via beacons
+  STATE_MAR_ASSOC_SLEEP, // Association sleep attack
+  STATE_MAR_BADMSG,      // Bad msg action frame flood
+  STATE_MAR_SAE,         // SAE Commit / Commit flood
+  STATE_MAR_PINGSCAN,    // /24 ICMP scan
+  STATE_MAR_PORTAL,      // Evil Portal AP + captive page
+  // ---- Marauder BLE feature batch ----
+  STATE_BLE_MAR_INIT,
+  STATE_BLE_MAR_AIRTAG,
+  STATE_BLE_MAR_MONITOR,
+  STATE_BLE_MAR_SPOOF,
+  STATE_BLE_MAR_SKIMMER,
+  STATE_BLE_MAR_FLOCK,
+  STATE_BLE_MAR_META,
+  STATE_BLE_MAR_ANALYZER,
+  STATE_BLE_MAR_SOURAPPLE,
+  STATE_BLE_MAR_SWIFTPAIR,
+  STATE_BLE_MAR_SPAMPLUS,
 };
 
 // Current State
@@ -63,8 +93,8 @@ static lv_obj_t *rawTxFocusedTextarea = NULL;  // tracks which RAW TX textarea i
 static const char *mapNum[] = {"1", "2", "3", "\n",
                                      "4", "5", "6", "\n",
                                      "7", "8", "9", "\n",
-                                     "0", ".", LV_SYMBOL_BACKSPACE, "\n",
-                                     LV_SYMBOL_OK, ""};
+                                     "0", ".", "<X", "\n",
+                                     "OK", ""};
 
 // ---------------------------------------------------------------------
 // void KeyboardProtocolAnalyzer(lv_event_t * e)
@@ -78,12 +108,12 @@ static void KeyboardProtocolAnalyzer(lv_event_t *e)
 
   const char *txt = lv_btnmatrix_get_btn_text(obj, lv_btnmatrix_get_selected_btn(obj));
 
-  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+  if (strcmp(txt, "<X") == 0)
   {
     lv_textarea_del_char(ui_txtMainFreq);
     lv_label_set_text(ui_lblProtAnaFreqKeyboardValueUnits, lv_textarea_get_text(ui_txtMainFreq));
   }
-  else if (strcmp(txt, LV_SYMBOL_OK) == 0)
+  else if (strcmp(txt, "OK") == 0)
   {
     lv_event_send(ui_txtMainFreq, LV_EVENT_READY, NULL);
   }
@@ -150,12 +180,12 @@ static void KeyboardRCSW(lv_event_t *e)
 
   const char *txt = lv_btnmatrix_get_btn_text(obj, lv_btnmatrix_get_selected_btn(obj));
 
-  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+  if (strcmp(txt, "<X") == 0)
   {
     lv_textarea_del_char(ui_txt10PoleFreq);
     lv_label_set_text(ui_lblRCSWFreqKeyboardValueUnits, lv_textarea_get_text(ui_txt10PoleFreq));
   }
-  else if (strcmp(txt, LV_SYMBOL_OK) == 0)
+  else if (strcmp(txt, "OK") == 0)
   {
     lv_res_t res = lv_event_send(ui_txt10PoleFreq, LV_EVENT_READY, NULL);
     if (res != LV_RES_OK)
@@ -226,12 +256,12 @@ static void KeyboardRawTx(lv_event_t *e)
 
   const char *txt = lv_btnmatrix_get_btn_text(obj, lv_btnmatrix_get_selected_btn(obj));
 
-  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+  if (strcmp(txt, "<X") == 0)
   {
     lv_textarea_del_char(rawTxFocusedTextarea);
     lv_label_set_text(ui_lblRCSWFreqKeyboardValueUnits, lv_textarea_get_text(rawTxFocusedTextarea));
   }
-  else if (strcmp(txt, LV_SYMBOL_OK) == 0)
+  else if (strcmp(txt, "OK") == 0)
   {
     lv_res_t res = lv_event_send(rawTxFocusedTextarea, LV_EVENT_READY, NULL);
     if (res != LV_RES_OK) return;
@@ -304,12 +334,12 @@ static void KeyboardScanStart(lv_event_t *e)
 
   const char *txt = lv_btnmatrix_get_btn_text(obj, lv_btnmatrix_get_selected_btn(obj));
 
-  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+  if (strcmp(txt, "<X") == 0)
   {
     lv_textarea_del_char(ui_txtScanStartFq);
     lv_label_set_text(ui_lblCC1101StuffFreqKeyboardValueUnits, lv_textarea_get_text(ui_txtScanStartFq));
   }
-  else if (strcmp(txt, LV_SYMBOL_OK) == 0)
+  else if (strcmp(txt, "OK") == 0)
   {
     lv_res_t res = lv_event_send(ui_txtScanStartFq, LV_EVENT_READY, NULL);
     if (res != LV_RES_OK)
@@ -335,12 +365,12 @@ static void KeyboardScanStop(lv_event_t *e)
 
   const char *txt = lv_btnmatrix_get_btn_text(obj, lv_btnmatrix_get_selected_btn(obj));
 
-  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+  if (strcmp(txt, "<X") == 0)
   {
     lv_textarea_del_char(ui_txtScanStopFq);
     lv_label_set_text(ui_lblCC1101StuffFreqKeyboardValueUnits, lv_textarea_get_text(ui_txtScanStopFq));
   }
-  else if (strcmp(txt, LV_SYMBOL_OK) == 0)
+  else if (strcmp(txt, "OK") == 0)
   {
     lv_res_t res = lv_event_send(ui_txtScanStopFq, LV_EVENT_READY, NULL);
     if (res != LV_RES_OK)
@@ -454,12 +484,12 @@ static void KeyboardPacketGen(lv_event_t *e)
 
   const char *txt = lv_btnmatrix_get_btn_text(obj, lv_btnmatrix_get_selected_btn(obj));
 
-  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+  if (strcmp(txt, "<X") == 0)
   {
     lv_textarea_del_char(ui_txt1101GenFreq);
     lv_label_set_text(ui_lblCC1101StuffFreqKeyboardValueUnits, lv_textarea_get_text(ui_txt1101GenFreq));
   }
-  else if (strcmp(txt, LV_SYMBOL_OK) == 0)
+  else if (strcmp(txt, "OK") == 0)
   {
     lv_res_t res = lv_event_send(ui_txt1101GenFreq, LV_EVENT_READY, NULL);
     if (res != LV_RES_OK)
@@ -529,12 +559,12 @@ static void KeyboardRecPlay(lv_event_t *e)
 
   const char *txt = lv_btnmatrix_get_btn_text(obj, lv_btnmatrix_get_selected_btn(obj));
 
-  if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+  if (strcmp(txt, "<X") == 0)
   {
     lv_textarea_del_char(ui_txtRecPlayFq);
     lv_label_set_text(ui_lblCC1101StuffFreqKeyboardValueUnits, lv_textarea_get_text(ui_txtRecPlayFq));
   }
-  else if (strcmp(txt, LV_SYMBOL_OK) == 0)
+  else if (strcmp(txt, "OK") == 0)
   {
     lv_res_t res = lv_event_send(ui_txtRecPlayFq, LV_EVENT_READY, NULL);
     if (res != LV_RES_OK)

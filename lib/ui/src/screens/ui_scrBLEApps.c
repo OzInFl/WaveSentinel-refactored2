@@ -275,7 +275,7 @@ void ui_scrBLEApps_screen_init(void)
     lv_obj_set_align(ui_btnWifiBack1, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_btnWifiBack1, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_clear_flag(ui_btnWifiBack1, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(ui_btnWifiBack1, lv_color_hex(0xFFF700), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_btnWifiBack1, lv_color_hex(0x333355), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_btnWifiBack1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_lblWifiBack1 = lv_label_create(ui_btnWifiBack1);
@@ -283,7 +283,7 @@ void ui_scrBLEApps_screen_init(void)
     lv_obj_set_height(ui_lblWifiBack1, LV_SIZE_CONTENT);
     lv_obj_set_align(ui_lblWifiBack1, LV_ALIGN_CENTER);
     lv_label_set_text(ui_lblWifiBack1, "BACK");
-    lv_obj_set_style_text_color(ui_lblWifiBack1, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_lblWifiBack1, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_lblWifiBack1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_lblWifiBack1, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 

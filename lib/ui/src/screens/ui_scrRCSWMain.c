@@ -721,7 +721,7 @@ void ui_scrRCSWMain_screen_init(void)
     lv_obj_set_align(ui_btnRCSWBack, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_btnRCSWBack, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
     lv_obj_clear_flag(ui_btnRCSWBack, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_obj_set_style_bg_color(ui_btnRCSWBack, lv_color_hex(0xFFF700), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_btnRCSWBack, lv_color_hex(0x333355), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_btnRCSWBack, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_lblRCSWBack = lv_label_create(ui_btnRCSWBack);
@@ -729,7 +729,7 @@ void ui_scrRCSWMain_screen_init(void)
     lv_obj_set_height(ui_lblRCSWBack, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_lblRCSWBack, LV_ALIGN_CENTER);
     lv_label_set_text(ui_lblRCSWBack, "BACK");
-    lv_obj_set_style_text_color(ui_lblRCSWBack, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_lblRCSWBack, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_lblRCSWBack, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_lblRCSWBack, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 

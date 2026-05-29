@@ -408,7 +408,7 @@
       <h1>WAVE SENTINEL</h1>
       <p class="tagline">Sub-GHz &middot; WiFi &middot; Bluetooth Testing Tool</p>
       <p class="hero-description">
-        An all-in-one RF security research platform built on the ESP32-S3. Capture, analyze, and replay Sub-GHz signals, audit WiFi networks, and probe Bluetooth devices &mdash; all from a pocket-sized 3.5&quot; touchscreen with no external tools required.
+        An all-in-one RF security research platform built on the ESP32-S3. Capture, analyze, and replay Sub-GHz signals, crack rolling codes via the WaveKai cloud service, audit WiFi networks, transmit IR universal remote codes, and probe Bluetooth devices &mdash; all from a pocket-sized 3.5&quot; touchscreen with no external tools required.
       </p>
     </div>
 
@@ -435,48 +435,115 @@
       </div>
     </div>
 
+    <!-- WaveKai Cloud — NEW headline feature -->
+    <div class="card">
+      <h2><span class="icon">&#129504;</span> WaveKai Cloud &mdash; Rolling Code Cracking</h2>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">
+        Cloud-backed rolling-code analysis service built specifically for WaveSentinel. Capture a hopping-code remote on the device, tap <em>Crack</em>, and the WaveKai server returns the manufacturer key, serial number, and current counter. Generate the next valid codes on demand for replay testing &mdash; all from the touchscreen, no laptop required.
+      </p>
+      <ul class="feature-list">
+        <li><strong>KeeLoq + Variants</strong> &mdash; 66 verified manufacturer keys covering BFT, Beninca, FAAC SLH, Genie, Hormann HSM, Linear, Mercedes-Benz, Mongoose, NICE, Subaru, DoorHan, Sommer, Stilmatic, Cenmax, Sheriff, Pantera, Tomahawk, Alligator, and more</li>
+        <li><strong>130+ Protocols Auto-Detect</strong> &mdash; Full Momentum + Unleashed + Xtreme + RogueMaster coverage including Princeton, CAME 12/24, Nice FLO/Flor-S/One/Smilo, Gate TX, Linear/Linear Delta-3, KeeLoq (HCS200/300/301/362), Security+ v1/v2/2.0, Holtek HT12, Ansonic, Clemsa, Doitrand, BETT, Hörmann HSM &amp; BiSecur, Somfy Telis &amp; Keytis &amp; RTS, BFT Mitto, FAAC SLH/RC,XT, Came Atomo, Star Line, Scher-Khan, Marantec, Phoenix V2, Alutech AT-4N, Genie Intellicode, Magellan, Power Smoke, Dickert MAHS, Visonic PowerCode, Honeywell WDB, KingGates Stylo 4K, Mastercode, Jarolift, Roger, Ditec GOL4, SMC5326, Nero Radio, Nord Ice, Gangqi, Allstar Firefly, Dooya, Legrand, X10, Acurite/Bresser/Oregon/LaCrosse weather, Schrader/Kia TPMS, and dozens more</li>
+        <li><strong>4-Tier Score Discipline</strong> &mdash; Full decoder &gt; protocol-specific detect &gt; family fingerprint &gt; raw fallback. The re-ranker suppresses detect-only hits whenever any full decoder fires above 80% confidence, so the top result is always the most specific match</li>
+        <li><strong>Auto-Crack Mode</strong> &mdash; Every capture is sent to the server automatically and the result lands on screen seconds later</li>
+        <li><strong>Rolling Code Generator</strong> &mdash; Compute the next N valid codes for any cracked remote and replay them on demand</li>
+        <li><strong>Built-In Account UI</strong> &mdash; Sign-up, login, token balance display, all from the device. Credentials persist in flash via NVS</li>
+        <li><strong>Save / Replay</strong> &mdash; Generated codes save back to SD as Flipper-compatible .sub files for offline replay</li>
+        <li><strong>Server-Side OTA</strong> &mdash; Pull firmware updates straight from the WaveKai server via the Account screen</li>
+        <li><strong>Token-Based Usage</strong> &mdash; Free signup tokens, monthly Pro plan, lifetime + token packs available</li>
+      </ul>
+    </div>
+
     <!-- Sub-GHz RF Features -->
     <div class="card">
       <h2><span class="icon">&#128225;</span> Sub-GHz RF (CC1101)</h2>
       <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">Full-spectrum Sub-GHz radio powered by the CC1101 transceiver. Capture, replay, scan, and decode RF signals across the 300&ndash;928 MHz band.</p>
       <ul class="feature-list">
-        <li><strong>Capture &amp; Playback</strong> &mdash; Record raw RF signals and retransmit on demand</li>
-        <li><strong>Frequency Scanner</strong> &mdash; Sweep and detect active frequencies in real time</li>
-        <li><strong>Protocol Analyzer</strong> &mdash; Auto-identify Princeton, KeeLoq, CAME, Nice FLO, GateTX, Linear &amp; more</li>
-        <li><strong>Signal Generator</strong> &mdash; Transmit on any configurable frequency and modulation</li>
-        <li><strong>Flipper .sub Files</strong> &mdash; Load, save, and play Flipper Zero sub-files from SD card</li>
-        <li><strong>Tesla Charge Port</strong> &mdash; US and EU charge port signal emulation</li>
+        <li><strong>Read RAW</strong> &mdash; Dedicated CC1101 OOK async capture loop with IRAM ISR on GDO0, 4096-entry ring buffer, OOK 270 / OOK 650 / FSK 238 / FSK 476 preset chooser, live edge counter, fill bar, and pulsing "&#9679; CAPTURING" indicator. Saves Flipper-compatible RAW_Data .sub with the correct preset header</li>
+        <li><strong>BinRAW Decoder</strong> &mdash; On-device generic bitstream decoder. Pick any saved .sub, hit DECODE: returns detected Te (&micro;s), encoding (PWM / PPM / Manchester / NRZ), bit count, hex, and the first 80 bits in a popup</li>
+        <li><strong>KeeLoq Clone</strong> &mdash; Capture any KeeLoq frame, decrypt with manufacturer key, increment counter, re-encrypt, and TX the next valid rolling code. Full Microchip HCS200/300/301 cipher (528 rounds, NLF 0x3A5C742E) implemented on the device</li>
+        <li><strong>Frequency Analyzer</strong> &mdash; Flipper-style FFT spectrum sweep with live RSSI bars, snap-to-preset detection with hit counters, threshold slider, and Geiger-style audio feedback whose pitch tracks signal strength. Hot-swap freq from the dropdown without stopping the scan</li>
+        <li><strong>Protocol Analyzer (Cloud)</strong> &mdash; Auto-identify across 130+ protocols against the WaveKai server in &lt;500&nbsp;ms</li>
+        <li><strong>Flipper Player Screen</strong> &mdash; Hand-coded SD browser: folder + .sub file dropdowns auto-populate from real directories, PLAY / STOP / READ RAW / DECODE / KEELOQ CLONE actions, status line, dirty-write auto-save</li>
+        <li><strong>CHAOS Tab</strong> &mdash; Tesla US (315 MHz) + Tesla EU (433.92 MHz) charge-port emulation, plus configurable Packet Generator for raw modulation testing</li>
+        <li><strong>World Mode Toggle</strong> &mdash; NVS-persisted region unlock. US default (315 / 433.92 / 915 MHz) or WORLD (full CC1101 300&ndash;928 MHz) selectable from the Settings screen</li>
+        <li><strong>Universal Remote</strong> &mdash; 35-button programmable remote (Numbers, Nav, Media). Assign any .sub file to any button. NVS-persisted last profile auto-loads on screen entry; auto-save on EDIT &rarr; DONE and on screen exit</li>
         <li><strong>RCSwitch Types A&ndash;D</strong> &mdash; DIP switch, rotary/sliding, Intertechno, and REV remote control transmit</li>
-        <li><strong>RAW TX</strong> &mdash; Send raw codes with configurable frequency, bit length, pulse length, protocol, and repeat</li>
-        <li><strong>Universal Remote</strong> &mdash; 35-button programmable remote (Numbers, Nav, Media). Assign any .sub file to any button, save/load profiles to SD</li>
         <li><strong>Full CC1101 Config</strong> &mdash; Frequency, modulation (ASK/FSK/GFSK/MSK), bandwidth, deviation, data rate, TX power, sync mode, packet format</li>
-        <li><strong>Save to SD</strong> &mdash; Export captures as Flipper-compatible .sub files</li>
+        <li><strong>Flipper .sub I/O</strong> &mdash; Load, save, and play Flipper Zero sub files. RAW captures write with the correct FuriHalSubGhz preset header (Ook270 / Ook650 / 2FSKDev238 / 2FSKDev476)</li>
+      </ul>
+    </div>
+
+    <!-- IR Features -->
+    <div class="card">
+      <h2><span class="icon">&#128261;</span> Infrared (IR) Transmit</h2>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">Built-in IR LED transmitter for universal remote control of TVs, audio equipment, fans, projectors, and other consumer electronics. Modulated at standard 38 kHz carrier with configurable timing.</p>
+      <ul class="feature-list">
+        <li><strong>Flipper .ir Files</strong> &mdash; Load and transmit Flipper Zero IR captures stored on the SD card</li>
+        <li><strong>Universal Remote (IR mode)</strong> &mdash; Same 35-button programmable layout as the RF remote &mdash; assign any IR signal to any button, save profiles to SD</li>
+        <li><strong>Brand Browser</strong> &mdash; Built-in catalog organized by manufacturer for quick device pairing</li>
+        <li><strong>Raw IR Transmit</strong> &mdash; Send arbitrary pulse sequences with configurable carrier frequency for non-standard protocols</li>
+        <li><strong>NEC / RC5 / RC6 / Sony</strong> &mdash; Standard consumer IR protocol support</li>
       </ul>
     </div>
 
     <!-- WiFi Features -->
     <div class="card">
       <h2><span class="icon">&#128246;</span> WiFi Tools</h2>
-      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">802.11 b/g/n network auditing suite using the ESP32-S3's native WiFi radio with raw frame injection and promiscuous capture.</p>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">802.11 b/g/n network auditing suite using the ESP32-S3's native WiFi radio with raw frame injection and promiscuous capture. Full WiFi Mantis tool set (28 dedicated screens across the WiFi Mantis menu).</p>
       <ul class="feature-list">
-        <li><strong>Network Scanner</strong> &mdash; Discover and inspect nearby access points with signal strength</li>
-        <li><strong>WiFi Join</strong> &mdash; Connect to networks with on-screen keyboard, credentials saved to NVS</li>
-        <li><strong>Beacon Flood</strong> &mdash; Broadcast fake SSIDs (random, rickroll, funny names)</li>
-        <li><strong>Deauth Testing</strong> &mdash; 802.11 deauthentication frame transmission</li>
-        <li><strong>Packet Sniffer</strong> &mdash; Promiscuous mode capture with live packet stats and probe request logging</li>
+        <li><strong>Network Scanner / Join</strong> &mdash; Discover and connect to APs with on-screen keyboard, NVS-saved credentials</li>
+        <li><strong>AP &amp; Station Scan</strong> &mdash; Active AP enumeration + promiscuous station discovery; tap to add to persisted Target List (NVS)</li>
+        <li><strong>EAPOL / PMKID Capture</strong> &mdash; Passive PMKID grab from WPA2 handshakes; saved hashcat-22000-format to SD</li>
+        <li><strong>Packet Count Graph</strong> &mdash; Live strip chart of mgmt / data / probe frame counts</li>
+        <li><strong>Signal Monitor</strong> &mdash; Per-AP RSSI bar chart from the latest scan</li>
+        <li><strong>Channel Analyzer</strong> &mdash; 1-14 channel utilization histogram with continuous sweep</li>
+        <li><strong>MAC Track</strong> &mdash; Follow one station's RSSI across channels, lv_chart over time</li>
+        <li><strong>Pwnagotchi Detect</strong> &mdash; Recognize other Pwnagotchi beacons by SSID prefix + vendor IE</li>
+        <li><strong>Raw Sniff</strong> &mdash; Most-permissive promiscuous capture; ring of 256 frame headers, SD-saved .bin</li>
+        <li><strong>Ping Scan</strong> &mdash; ICMP sweep of the local /24 with RTT per host</li>
+        <li><strong>Beacon Flood</strong> &mdash; Random / rickroll / funny SSIDs</li>
+        <li><strong>Probe Request Flood</strong> &mdash; Crafted probe frames cycling SSIDs + MACs</li>
+        <li><strong>Karma / AP Clone Spam</strong> &mdash; Capture probe SSIDs, then broadcast beacons advertising them</li>
+        <li><strong>Evil Portal</strong> &mdash; SoftAP + DNS hijack + captive HTML; logs creds to SD as JSON</li>
+        <li><strong>Deauth + Association Sleep Attack</strong> &mdash; L2 attacks: deauth flood, repeated assoc+deauth keeping clients in sleep loop</li>
+        <li><strong>Bad Msg + SAE Commit / Flood</strong> &mdash; Malformed action frames + WPA3 SAE-Commit (group 19) single shot or flood</li>
         <li><strong>OTA Updates</strong> &mdash; Over-the-air firmware updates via built-in web server</li>
+        <li><strong>Local REST API</strong> &mdash; HTTP endpoints on port 80 for status, config, capture/replay, scanning, and remote OTA flash</li>
       </ul>
     </div>
 
     <!-- BLE Features -->
     <div class="card">
       <h2><span class="icon">&#128268;</span> Bluetooth Low Energy</h2>
-      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">BLE 5.0 toolset powered by the NimBLE stack for advertisement analysis and broadcast testing.</p>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">BLE 5.0 toolset powered by the NimBLE stack for advertisement analysis and broadcast testing. Full BLE Mantis feature set (10 dedicated screens across the BLE Mantis menu).</p>
       <ul class="feature-list">
-        <li><strong>BLE Spam</strong> &mdash; Advertisement flooding for Apple, Android, Samsung, Windows, and Google devices</li>
-        <li><strong>BLE Scanner</strong> &mdash; Discover nearby BLE devices with name, MAC address, and RSSI</li>
-        <li><strong>Configurable Duration</strong> &mdash; 5s, 10s, or 30s scan windows</li>
+        <li><strong>BLE Scanner</strong> &mdash; Discover nearby devices with name, MAC, RSSI, and configurable scan window</li>
+        <li><strong>AirTag Sniff</strong> &mdash; Passive Apple FindMy detection (mfg 0x004C + lost-mode subtype). Last 16 unique tags with RSSI / age / hit count</li>
+        <li><strong>AirTag Monitor</strong> &mdash; Lock onto a sniffed AirTag, plot RSSI ring buffer on lv_chart, distance estimate via path-loss formula</li>
+        <li><strong>AirTag Spoof</strong> &mdash; Broadcast counterfeit FindMy beacon (random pub key per ad, rotating NRPA MAC)</li>
+        <li><strong>Card Skimmer Detection</strong> &mdash; 26-name signature DB (HC-0x, JDY-xx, AT-09, MLT-BT05, DL16, etc.) flags suspicious BT modules</li>
+        <li><strong>Flock Sniff</strong> &mdash; Detect Mantis Flock social-broadcast packets (mfg 0xFFFF + "FLOCK" magic), decode ASCII payload</li>
+        <li><strong>Meta Detect</strong> &mdash; Identify Meta/Facebook devices via service UUID 0xFEF4 + vendor IDs + Quest/Oculus name prefixes</li>
+        <li><strong>BLE Analyzer Dashboard</strong> &mdash; Total ads, unique devices, 5-bucket RSSI histogram, connectable/name/mfg counts, per-vendor breakdown</li>
+        <li><strong>Sour Apple</strong> &mdash; Malformed Apple-continuity payloads (oversize subtype, garbage TLV) on rotating MACs &mdash; iOS BLE crash test</li>
+        <li><strong>SwiftPair Spam</strong> &mdash; Microsoft SwiftPair pairing-prompt flood (mfg 0x0006) with 8 rotating device names</li>
+        <li><strong>Spam+</strong> &mdash; Samsung Buds Live / Buds Pro / Buds 2 / Galaxy Watch / Flipper Zero / Apple Watch variants</li>
         <li><strong>NimBLE Stack</strong> &mdash; Low memory footprint (~15KB vs 70KB Bluedroid)</li>
+      </ul>
+    </div>
+
+    <!-- Easter Eggs + Quality-of-Life -->
+    <div class="card">
+      <h2><span class="icon">&#127918;</span> Hidden Goodies</h2>
+      <p style="color:var(--text-dim);font-size:0.88rem;margin-bottom:1rem;">A few non-essential extras that make the device feel alive when you're not actively cracking something.</p>
+      <ul class="feature-list">
+        <li><strong>Wave Invaderz</strong> &mdash; Hold the rat icon on the main menu for 5 seconds to launch a classic-arcade Space Invaders clone with composite invader sprites (Squid / Crab / Octopus), bonus UFO crossings, score / lives HUD, wave progression, and synthesized 4-note marching audio that speeds up as the swarm thins</li>
+        <li><strong>Animated Lightning Strikes</strong> &mdash; Idle main menu fires randomized bolts (7&ndash;12 segment paths, 4 palette variants, partial-length flash variants, vertical / diagonal / cloud-to-cloud orientations). After 12&nbsp;s of inactivity, each strike pairs with synthesized rolling thunder 500&ndash;1400&nbsp;ms later</li>
+        <li><strong>Volume + Brightness Controls</strong> &mdash; Live sliders in Settings, NVS-persisted across reboots</li>
+        <li><strong>Rotate 180&deg;</strong> &mdash; Settings button flips display orientation on the fly</li>
+        <li><strong>About Box</strong> &mdash; Firmware version, MAC, IP, uptime, and active region all in one screen</li>
+        <li><strong>Status Bar</strong> &mdash; Persistent WiFi 3-bar + battery icons drawn from primitives (no font-glyph dependency) &mdash; visible across every screen, transparent to touches</li>
       </ul>
     </div>
 
@@ -487,7 +554,7 @@
         <li><strong>3.5" Touchscreen</strong> &mdash; 480x320 capacitive IPS display, full touch-driven LVGL UI</li>
         <li><strong>Persistent Status Bar</strong> &mdash; WiFi and battery icons visible across all screens</li>
         <li><strong>microSD Card</strong> &mdash; Save/load RF captures, Flipper .sub files, remote profiles, and presets</li>
-        <li><strong>I2S Audio Output</strong> &mdash; DAC sound output via dedicated I2S bus</li>
+        <li><strong>I2S Audio Feedback</strong> &mdash; Event tones for boot, scanner hits, captures, TX, cracks, and errors via dedicated I2S DAC; Geiger-style continuous pitch tracking while scanning</li>
         <li><strong>TouchTunes Remote</strong> &mdash; Wireless jukebox control with full command set</li>
         <li><strong>Dual-Core Architecture</strong> &mdash; Core 0 handles display, Core 1 handles RF/WiFi/BLE operations</li>
       </ul>
@@ -523,6 +590,20 @@
           <div class="req-text">
             <strong>USB-C Cable</strong>
             <span>For flashing firmware and power. Data-capable cable required</span>
+          </div>
+        </div>
+        <div class="req-item">
+          <span class="req-icon">&#129504;</span>
+          <div class="req-text">
+            <strong>WaveKai Account (Optional)</strong>
+            <span>Free signup tokens included. Required only for cloud rolling-code cracking; everything else works fully offline</span>
+          </div>
+        </div>
+        <div class="req-item">
+          <span class="req-icon">&#128261;</span>
+          <div class="req-text">
+            <strong>IR LED (Optional)</strong>
+            <span>For universal remote / IR transmit features. Connect to GPIO via current-limiting resistor</span>
           </div>
         </div>
       </div>

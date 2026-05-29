@@ -209,10 +209,10 @@ static void tt_screen_init(void) {
     lv_obj_set_style_bg_img_src(ui_scrTouchTunes, &ui_img_blankpgbkgnd_png, LV_PART_MAIN);
     lv_obj_clear_flag(ui_scrTouchTunes, LV_OBJ_FLAG_SCROLLABLE);
 
-    // --- Title ---
+    // --- Title --- (pushed below the persistent status bar at top-right)
     lv_obj_t *title = lv_label_create(ui_scrTouchTunes);
     lv_obj_set_x(title, 0);
-    lv_obj_set_y(title, 3);
+    lv_obj_set_y(title, 28);
     lv_obj_set_align(title, LV_ALIGN_TOP_MID);
     lv_label_set_text(title, "TOUCHTUNES REMOTE");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFF9100), LV_PART_MAIN);
@@ -221,22 +221,22 @@ static void tt_screen_init(void) {
     // --- PIN label ---
     lv_obj_t *pinLbl = lv_label_create(ui_scrTouchTunes);
     lv_obj_set_x(pinLbl, -75);
-    lv_obj_set_y(pinLbl, 30);
+    lv_obj_set_y(pinLbl, 55);
     lv_obj_set_align(pinLbl, LV_ALIGN_TOP_MID);
     lv_label_set_text(pinLbl, "PIN:");
     lv_obj_set_style_text_color(pinLbl, lv_color_hex(0x00AFFF), LV_PART_MAIN);
     lv_obj_set_style_text_font(pinLbl, &ui_font_Verdana16, LV_PART_MAIN);
 
     // --- PIN Rollers (3 digits) ---
-    tt_rollerHundreds = tt_createRoller(ui_scrTouchTunes, "0\n1\n2", -28, 27);
-    tt_rollerTens     = tt_createRoller(ui_scrTouchTunes, "0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 18, 27);
-    tt_rollerOnes     = tt_createRoller(ui_scrTouchTunes, "0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 64, 27);
+    tt_rollerHundreds = tt_createRoller(ui_scrTouchTunes, "0\n1\n2", -28, 52);
+    tt_rollerTens     = tt_createRoller(ui_scrTouchTunes, "0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 18, 52);
+    tt_rollerOnes     = tt_createRoller(ui_scrTouchTunes, "0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 64, 52);
 
     // --- Status label ---
     tt_lblStatus = lv_label_create(ui_scrTouchTunes);
     lv_obj_set_width(tt_lblStatus, 280);
     lv_obj_set_x(tt_lblStatus, 0);
-    lv_obj_set_y(tt_lblStatus, 60);
+    lv_obj_set_y(tt_lblStatus, 85);
     lv_obj_set_align(tt_lblStatus, LV_ALIGN_TOP_MID);
     lv_label_set_text(tt_lblStatus, "Ready");
     lv_obj_set_style_text_align(tt_lblStatus, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -244,10 +244,10 @@ static void tt_screen_init(void) {
     lv_obj_set_style_text_font(tt_lblStatus, &ui_font_Verdana16, LV_PART_MAIN);
 
     // ======================= TAB VIEW =======================
-    // Top area ends at Y~78, BACK button at Y~453, tabview fills between
+    // Top area ends at Y~103, BACK button at Y~453, tabview fills between
     lv_obj_t *tabview = lv_tabview_create(ui_scrTouchTunes, LV_DIR_TOP, 32);
-    lv_obj_set_pos(tabview, 0, 78);
-    lv_obj_set_size(tabview, 320, 372);
+    lv_obj_set_pos(tabview, 0, 103);
+    lv_obj_set_size(tabview, 320, 347);
     lv_obj_set_style_bg_opa(tabview, 0, LV_PART_MAIN);
 
     // Style the tab buttons bar
@@ -296,19 +296,19 @@ static void tt_screen_init(void) {
     // Row 3: F1, UP, F2
     y = 108;
     tt_createBtn(tabControl, -95, y, 68, 44, "F1",          0x444466, TT_CMD_F1_RESTART);
-    tt_createBtn(tabControl,   0, y, 78, 44, LV_SYMBOL_UP,  0x336699, TT_CMD_UP);
+    tt_createBtn(tabControl,   0, y, 78, 44, "^",  0x336699, TT_CMD_UP);
     tt_createBtn(tabControl,  95, y, 68, 44, "F2",          0x444466, TT_CMD_F2_KEY);
 
     // Row 4: LEFT, OK, RIGHT
     y = 162;
-    tt_createBtn(tabControl, -95, y, 78, 44, LV_SYMBOL_LEFT,  0x336699, TT_CMD_LEFT);
+    tt_createBtn(tabControl, -95, y, 78, 44, "<",  0x336699, TT_CMD_LEFT);
     tt_createBtn(tabControl,   0, y, 78, 44, "OK",            0x006633, TT_CMD_OK);
-    tt_createBtn(tabControl,  95, y, 78, 44, LV_SYMBOL_RIGHT, 0x336699, TT_CMD_RIGHT);
+    tt_createBtn(tabControl,  95, y, 78, 44, ">", 0x336699, TT_CMD_RIGHT);
 
     // Row 5: F3, DOWN, F4
     y = 216;
     tt_createBtn(tabControl, -95, y, 68, 44, "F3",            0x444466, TT_CMD_F3_MIC_A_MUTE);
-    tt_createBtn(tabControl,   0, y, 78, 44, LV_SYMBOL_DOWN,  0x336699, TT_CMD_DOWN);
+    tt_createBtn(tabControl,   0, y, 78, 44, "v",  0x336699, TT_CMD_DOWN);
     tt_createBtn(tabControl,  95, y, 68, 44, "F4",            0x444466, TT_CMD_F4_MIC_B_MUTE);
 
     // ==================== NUMPAD TAB ====================
@@ -373,14 +373,14 @@ static void tt_screen_init(void) {
     lv_obj_set_x(btnBack, -115);
     lv_obj_set_y(btnBack, 453);
     lv_obj_set_align(btnBack, LV_ALIGN_TOP_MID);
-    lv_obj_set_style_bg_color(btnBack, lv_color_hex(0xFFF700), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(btnBack, lv_color_hex(0x333355), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(btnBack, 255, LV_PART_MAIN);
     lv_obj_set_style_radius(btnBack, 6, LV_PART_MAIN);
 
     lv_obj_t *lblBack = lv_label_create(btnBack);
     lv_obj_set_align(lblBack, LV_ALIGN_CENTER);
     lv_label_set_text(lblBack, "BACK");
-    lv_obj_set_style_text_color(lblBack, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_text_color(lblBack, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_font(lblBack, &lv_font_montserrat_20, LV_PART_MAIN);
     lv_obj_add_event_cb(btnBack, tt_back_event_cb, LV_EVENT_CLICKED, NULL);
 }

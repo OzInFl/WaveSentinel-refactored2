@@ -4,6 +4,7 @@
 #include <lvgl.h>
 #include <ui.h>
 #include <SD.h>
+#include <Preferences.h>
 #include "SD/SDCard.h"
 #include "Display/Event.h"
 #include "IR/FlipperIRFile.h"
@@ -42,10 +43,10 @@ static const char *rb_keyNames[] = {
 static const char *rb_displayNames[] = {
     "POWER", "MUTE", "LAST", "EXIT",
     "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-    LV_SYMBOL_UP, LV_SYMBOL_DOWN, LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, "OK",
+    "^", "v", "<", ">", "OK",
     "BACK", "MENU", "HOME", "GUIDE", "INFO",
     "VOL +", "VOL -", "CH +", "CH -",
-    LV_SYMBOL_PLAY, LV_SYMBOL_PAUSE, LV_SYMBOL_STOP, LV_SYMBOL_PREV, LV_SYMBOL_NEXT,
+    ">", "||", "#", "<<", ">>",
     "INPUT", "REC"
 };
 
@@ -242,6 +243,46 @@ static void remote_refreshProfileList(void) {
     lv_dropdown_clear_options(remote_ddlProfile);
     refresh_sd_card_file(remote_ddlProfile, "/remotes", ".remote", true);
     now_close_sd_card();
+}
+
+// --------------------------------------------------------------------
+// Persist the last-loaded profile filename in NVS so it survives
+// screen switches + reboots. Stored under the "remote" namespace,
+// key "last".
+// --------------------------------------------------------------------
+static void remote_persistLastProfile(const char *filename) {
+    if (!filename || filename[0] == '\0') return;
+    Preferences p;
+    if (!p.begin("remote", false)) return;
+    p.putString("last", filename);
+    p.end();
+}
+
+static String remote_getLastProfile() {
+    Preferences p;
+    if (!p.begin("remote", true)) return String();
+    String v = p.getString("last", "");
+    p.end();
+    return v;
+}
+
+// Set the dropdown to the option matching `filename` (if present) and
+// load that profile. No-op if the file isn't in the list.
+static bool remote_selectAndLoadProfile(const char *filename) {
+    if (!filename || filename[0] == '\0') return false;
+    if (!remote_ddlProfile) return false;
+    uint16_t cnt = lv_dropdown_get_option_cnt(remote_ddlProfile);
+    char buf[80];
+    for (uint16_t i = 0; i < cnt; i++) {
+        lv_dropdown_set_selected(remote_ddlProfile, i);
+        lv_dropdown_get_selected_str(remote_ddlProfile, buf, sizeof(buf));
+        if (strcmp(buf, filename) == 0) {
+            remote_loadProfile(buf);
+            remote_updateButtonStyles();
+            return true;
+        }
+    }
+    return false;
 }
 
 // =====================================================================
@@ -617,10 +658,28 @@ static void remote_edit_event_cb(lv_event_t *e) {
         lv_obj_set_style_bg_color(remote_btnEdit, lv_color_hex(0xFF6600), LV_PART_MAIN);
         lv_label_set_text(remote_lblStatus, "EDIT MODE - Tap a button to assign");
     } else {
+        // Leaving edit mode → commit the profile to SD. Show success or
+        // an explicit failure reason so the user isn't left guessing
+        // why a button forgot its assignment.
         lv_label_set_text(remote_lblEdit, "EDIT");
         lv_obj_set_style_bg_color(remote_btnEdit, lv_color_hex(0x336699), LV_PART_MAIN);
-        lv_label_set_text(remote_lblStatus, "Ready");
         remote_hidePicker();
+        if (remoteProfile.name[0] == '\0') {
+            lv_label_set_text(remote_lblStatus,
+                "No profile - hit NEW first, then edit");
+        } else if (!sd_card_is_present()) {
+            lv_label_set_text(remote_lblStatus,
+                "No SD card - assignments not saved");
+        } else {
+            remote_saveProfile();
+            char msg[64];
+            snprintf(msg, sizeof(msg), "Saved: %s", remoteProfile.name);
+            lv_label_set_text(remote_lblStatus, msg);
+            // Also remember which profile is current so we re-open here
+            char fn[80];
+            snprintf(fn, sizeof(fn), "%s.remote", remoteProfile.name);
+            remote_persistLastProfile(fn);
+        }
     }
     remote_updateButtonStyles();
 }
@@ -636,6 +695,8 @@ static void remote_profile_changed_cb(lv_event_t *e) {
     if (selBuf[0] == '\0') return;
 
     remote_loadProfile(selBuf);
+    remote_updateButtonStyles();
+    remote_persistLastProfile(selBuf);   // remember across screen visits
 
     char msg[64];
     snprintf(msg, sizeof(msg), "Loaded: %s", remoteProfile.name);
@@ -793,10 +854,41 @@ static void remote_screen_init(void) {
     lv_obj_set_style_bg_img_src(ui_scrRemote, &ui_img_blankpgbkgnd_png, LV_PART_MAIN);
     lv_obj_clear_flag(ui_scrRemote, LV_OBJ_FLAG_SCROLLABLE);
 
-    // --- Title ---
+    // Re-select + reload the previously-used profile every time the
+    // user returns to this screen, so the buttons they programmed are
+    // still wired up. Refresh the file list first in case a profile
+    // was added/removed via SD on another device.
+    lv_obj_add_event_cb(ui_scrRemote, [](lv_event_t *e) {
+        remote_refreshProfileList();
+        String last = remote_getLastProfile();
+        if (last.length() > 0) {
+            remote_selectAndLoadProfile(last.c_str());
+        }
+    }, LV_EVENT_SCREEN_LOADED, NULL);
+
+    // Leaving the screen — drop edit mode + commit the current profile
+    // so any in-flight assignments don't vanish on the return trip.
+    lv_obj_add_event_cb(ui_scrRemote, [](lv_event_t *e) {
+        if (remote_editMode) {
+            remote_editMode = false;
+            if (remote_lblEdit) lv_label_set_text(remote_lblEdit, "EDIT");
+            if (remote_btnEdit) lv_obj_set_style_bg_color(remote_btnEdit,
+                                       lv_color_hex(0x336699), LV_PART_MAIN);
+            remote_hidePicker();
+            remote_updateButtonStyles();
+        }
+        if (remoteProfile.name[0] != '\0' && sd_card_is_present()) {
+            remote_saveProfile();
+            char fn[80];
+            snprintf(fn, sizeof(fn), "%s.remote", remoteProfile.name);
+            remote_persistLastProfile(fn);
+        }
+    }, LV_EVENT_SCREEN_UNLOAD_START, NULL);
+
+    // --- Title --- (pushed below the persistent status bar at top-right)
     lv_obj_t *title = lv_label_create(ui_scrRemote);
     lv_obj_set_x(title, 0);
-    lv_obj_set_y(title, 3);
+    lv_obj_set_y(title, 28);
     lv_obj_set_align(title, LV_ALIGN_TOP_MID);
     lv_label_set_text(title, "UNIVERSAL REMOTE");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFF9100), LV_PART_MAIN);
@@ -804,9 +896,10 @@ static void remote_screen_init(void) {
 
     // --- Profile dropdown ---
     remote_ddlProfile = lv_dropdown_create(ui_scrRemote);
+    lv_dropdown_set_symbol(remote_ddlProfile, NULL);
     lv_obj_set_width(remote_ddlProfile, 165);
     lv_obj_set_x(remote_ddlProfile, -55);
-    lv_obj_set_y(remote_ddlProfile, 27);
+    lv_obj_set_y(remote_ddlProfile, 52);
     lv_obj_set_align(remote_ddlProfile, LV_ALIGN_TOP_MID);
     lv_dropdown_set_options(remote_ddlProfile, "");
     lv_obj_set_style_text_font(remote_ddlProfile, &ui_font_Verdana12, LV_PART_MAIN);
@@ -821,7 +914,7 @@ static void remote_screen_init(void) {
     lv_obj_set_width(btnNew, 55);
     lv_obj_set_height(btnNew, 32);
     lv_obj_set_x(btnNew, 88);
-    lv_obj_set_y(btnNew, 27);
+    lv_obj_set_y(btnNew, 52);
     lv_obj_set_align(btnNew, LV_ALIGN_TOP_MID);
     lv_obj_set_style_bg_color(btnNew, lv_color_hex(0x006633), LV_PART_MAIN);
     lv_obj_set_style_radius(btnNew, 6, LV_PART_MAIN);
@@ -838,7 +931,7 @@ static void remote_screen_init(void) {
     lv_obj_set_width(btnDel, 45);
     lv_obj_set_height(btnDel, 32);
     lv_obj_set_x(btnDel, 140);
-    lv_obj_set_y(btnDel, 27);
+    lv_obj_set_y(btnDel, 52);
     lv_obj_set_align(btnDel, LV_ALIGN_TOP_MID);
     lv_obj_set_style_bg_color(btnDel, lv_color_hex(0x990000), LV_PART_MAIN);
     lv_obj_set_style_radius(btnDel, 6, LV_PART_MAIN);
@@ -854,7 +947,7 @@ static void remote_screen_init(void) {
     remote_lblStatus = lv_label_create(ui_scrRemote);
     lv_obj_set_width(remote_lblStatus, 210);
     lv_obj_set_x(remote_lblStatus, -30);
-    lv_obj_set_y(remote_lblStatus, 62);
+    lv_obj_set_y(remote_lblStatus, 87);
     lv_obj_set_align(remote_lblStatus, LV_ALIGN_TOP_MID);
     lv_label_set_text(remote_lblStatus, "Select or create a profile");
     lv_obj_set_style_text_color(remote_lblStatus, lv_color_hex(0x00FFFF), LV_PART_MAIN);
@@ -865,7 +958,7 @@ static void remote_screen_init(void) {
     lv_obj_set_width(remote_btnEdit, 60);
     lv_obj_set_height(remote_btnEdit, 26);
     lv_obj_set_x(remote_btnEdit, 130);
-    lv_obj_set_y(remote_btnEdit, 60);
+    lv_obj_set_y(remote_btnEdit, 85);
     lv_obj_set_align(remote_btnEdit, LV_ALIGN_TOP_MID);
     lv_obj_set_style_bg_color(remote_btnEdit, lv_color_hex(0x336699), LV_PART_MAIN);
     lv_obj_set_style_radius(remote_btnEdit, 6, LV_PART_MAIN);
@@ -879,8 +972,8 @@ static void remote_screen_init(void) {
 
     // ======================= TAB VIEW =======================
     lv_obj_t *tabview = lv_tabview_create(ui_scrRemote, LV_DIR_TOP, 30);
-    lv_obj_set_pos(tabview, 0, 96);
-    lv_obj_set_size(tabview, 320, 352);
+    lv_obj_set_pos(tabview, 0, 121);
+    lv_obj_set_size(tabview, 320, 327);
     lv_obj_set_style_bg_opa(tabview, 0, LV_PART_MAIN);
 
     lv_obj_t *tab_btns = lv_tabview_get_tab_btns(tabview);
@@ -937,28 +1030,30 @@ static void remote_screen_init(void) {
     remote_createBtn(tabNumbers,   0, y, bw, bh, "0", 0x2A2A4A, RB_0);
 
     // ==================== NAV TAB ====================
+    // Compacted vertically so GUIDE/INFO are no longer clipped at the
+    // bottom of the tab content area (which is ~290 px tall).
     // Top row: BACK, MENU, HOME
-    y = 23;
+    y = 18;
     remote_createBtn(tabNav, -95, y, 80, 40, "BACK", 0x333366, RB_BACK);
     remote_createBtn(tabNav,   0, y, 80, 40, "MENU", 0x333366, RB_MENU);
     remote_createBtn(tabNav,  95, y, 80, 40, "HOME", 0x333366, RB_HOME);
 
     // D-pad: UP
-    y = 79;
-    remote_createBtn(tabNav, 0, y, 80, 50, LV_SYMBOL_UP, 0x336699, RB_UP);
+    y = 70;
+    remote_createBtn(tabNav, 0, y, 80, 50, "^", 0x336699, RB_UP);
 
     // D-pad: LEFT, OK, RIGHT
-    y = 137;
-    remote_createBtn(tabNav, -90, y, 80, 50, LV_SYMBOL_LEFT, 0x336699, RB_LEFT);
+    y = 124;
+    remote_createBtn(tabNav, -90, y, 80, 50, "<", 0x336699, RB_LEFT);
     remote_createBtn(tabNav,   0, y, 80, 50, "OK", 0x006633, RB_OK);
-    remote_createBtn(tabNav,  90, y, 80, 50, LV_SYMBOL_RIGHT, 0x336699, RB_RIGHT);
+    remote_createBtn(tabNav,  90, y, 80, 50, ">", 0x336699, RB_RIGHT);
 
     // D-pad: DOWN
-    y = 195;
-    remote_createBtn(tabNav, 0, y, 80, 50, LV_SYMBOL_DOWN, 0x336699, RB_DOWN);
+    y = 178;
+    remote_createBtn(tabNav, 0, y, 80, 50, "v", 0x336699, RB_DOWN);
 
     // Bottom row: GUIDE, INFO
-    y = 259;
+    y = 234;
     remote_createBtn(tabNav, -60, y, 105, 40, "GUIDE", 0x444466, RB_GUIDE);
     remote_createBtn(tabNav,  60, y, 105, 40, "INFO",  0x444466, RB_INFO);
 
@@ -972,14 +1067,14 @@ static void remote_screen_init(void) {
 
     // Row 2: PREV, PLAY, PAUSE, NEXT
     y = 136;
-    remote_createBtn(tabMedia, -115, y, 68, 50, LV_SYMBOL_PREV,  0x336699, RB_PREV);
-    remote_createBtn(tabMedia,  -38, y, 68, 50, LV_SYMBOL_PLAY,  0x006633, RB_PLAY);
-    remote_createBtn(tabMedia,   38, y, 68, 50, LV_SYMBOL_PAUSE, 0x994400, RB_PAUSE);
-    remote_createBtn(tabMedia,  115, y, 68, 50, LV_SYMBOL_NEXT,  0x336699, RB_NEXT);
+    remote_createBtn(tabMedia, -115, y, 68, 50, "<<",  0x336699, RB_PREV);
+    remote_createBtn(tabMedia,  -38, y, 68, 50, ">",  0x006633, RB_PLAY);
+    remote_createBtn(tabMedia,   38, y, 68, 50, "||", 0x994400, RB_PAUSE);
+    remote_createBtn(tabMedia,  115, y, 68, 50, ">>",  0x336699, RB_NEXT);
 
     // Row 3: STOP, INPUT, RECORD
     y = 198;
-    remote_createBtn(tabMedia, -90, y, 85, 50, LV_SYMBOL_STOP, 0xCC0000, RB_STOP);
+    remote_createBtn(tabMedia, -90, y, 85, 50, "#", 0xCC0000, RB_STOP);
     remote_createBtn(tabMedia,   0, y, 85, 50, "INPUT",         0x333366, RB_INPUT);
     remote_createBtn(tabMedia,  90, y, 85, 50, "REC",           0x990000, RB_RECORD);
 
@@ -990,7 +1085,7 @@ static void remote_screen_init(void) {
     lv_obj_set_x(btnBack, -115);
     lv_obj_set_y(btnBack, 453);
     lv_obj_set_align(btnBack, LV_ALIGN_TOP_MID);
-    lv_obj_set_style_bg_color(btnBack, lv_color_hex(0xFFF700), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(btnBack, lv_color_hex(0x333355), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(btnBack, 255, LV_PART_MAIN);
     lv_obj_set_style_radius(btnBack, 6, LV_PART_MAIN);
     lv_obj_clear_flag(btnBack, LV_OBJ_FLAG_SCROLLABLE);
@@ -998,7 +1093,7 @@ static void remote_screen_init(void) {
     lv_obj_t *lblBack = lv_label_create(btnBack);
     lv_obj_set_align(lblBack, LV_ALIGN_CENTER);
     lv_label_set_text(lblBack, "BACK");
-    lv_obj_set_style_text_color(lblBack, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_text_color(lblBack, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_font(lblBack, &lv_font_montserrat_20, LV_PART_MAIN);
     lv_obj_add_event_cb(btnBack, remote_back_event_cb, LV_EVENT_CLICKED, NULL);
 
@@ -1035,6 +1130,7 @@ static void remote_screen_init(void) {
     lv_obj_set_style_text_font(lblFolder, &ui_font_Verdana12, LV_PART_MAIN);
 
     remote_pickerDdlFolder = lv_dropdown_create(remote_pickerPanel);
+    lv_dropdown_set_symbol(remote_pickerDdlFolder, NULL);
     lv_obj_set_width(remote_pickerDdlFolder, 200);
     lv_obj_set_x(remote_pickerDdlFolder, 20);
     lv_obj_set_y(remote_pickerDdlFolder, 18);
@@ -1056,6 +1152,7 @@ static void remote_screen_init(void) {
     lv_obj_add_flag(remote_pickerLblBrand, LV_OBJ_FLAG_HIDDEN);
 
     remote_pickerDdlBrand = lv_dropdown_create(remote_pickerPanel);
+    lv_dropdown_set_symbol(remote_pickerDdlBrand, NULL);
     lv_obj_set_width(remote_pickerDdlBrand, 200);
     lv_obj_set_x(remote_pickerDdlBrand, 20);
     lv_obj_set_y(remote_pickerDdlBrand, 51);
@@ -1079,6 +1176,7 @@ static void remote_screen_init(void) {
     lv_obj_set_style_text_font(lblFile, &ui_font_Verdana12, LV_PART_MAIN);
 
     remote_pickerDdlFile = lv_dropdown_create(remote_pickerPanel);
+    lv_dropdown_set_symbol(remote_pickerDdlFile, NULL);
     lv_obj_set_width(remote_pickerDdlFile, 200);
     lv_obj_set_x(remote_pickerDdlFile, 20);
     lv_obj_set_y(remote_pickerDdlFile, 84);
@@ -1100,6 +1198,7 @@ static void remote_screen_init(void) {
     lv_obj_add_flag(remote_pickerLblSignal, LV_OBJ_FLAG_HIDDEN);
 
     remote_pickerDdlSignal = lv_dropdown_create(remote_pickerPanel);
+    lv_dropdown_set_symbol(remote_pickerDdlSignal, NULL);
     lv_obj_set_width(remote_pickerDdlSignal, 200);
     lv_obj_set_x(remote_pickerDdlSignal, 20);
     lv_obj_set_y(remote_pickerDdlSignal, 117);

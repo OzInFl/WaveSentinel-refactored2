@@ -1,6 +1,16 @@
 #include "SubGhz.h"
 #include "ProtocolID.h"
+#include "WorldMode.h"
+#include "Display/ScannerScreen.h"
 #include <SPI.h>
+
+// External main-loop state so we can refuse RAW capture while scanner is running.
+// (Event.h defines this at file scope, so we forward-declare it here instead of
+// including Event.h to avoid multiple-definition link errors.)
+extern uint8_t currentState;
+// Mirror of STATE_SCANNER enum value from Display/Event.h (WaveSentinelState).
+// If the enum order changes in Event.h, update this constant too.
+static const uint8_t kStateScanner = 3;
 
 // SD card uses a dedicated SPI bus (HSPI) defined in SDCard.h
 extern SPIClass sdSPI;
@@ -62,6 +72,27 @@ int sample[SAMPLE_SIZE];
 int samplecount;
 
 bool receiverEnabled = false;
+
+// Forward declarations for RAW capture state — defined later in this file —
+// so defensive cleanup at RX-mode entry points (enableScanner, enableReceiver,
+// enableRCSwitch, enableTransmit, CaptureLoopSD) can tear down a lingering
+// ISR / running flag before reprogramming the radio and SPI bus.
+static volatile bool        s_rawRunning = false;
+static int                  s_rawIsrPin  = -1;
+static portMUX_TYPE         s_rawMux     = portMUX_INITIALIZER_UNLOCKED;
+
+// Centralized defensive teardown: detach the GDO0 pin-change ISR (if any),
+// clear the running flag, and reset edge bookkeeping. Safe to call even
+// when no capture is in flight — detachInterrupt is idempotent.
+static void rawCaptureForceStop()
+{
+    if (s_rawIsrPin >= 0) {
+        detachInterrupt(s_rawIsrPin);
+    }
+    portENTER_CRITICAL(&s_rawMux);
+    s_rawRunning = false;
+    portEXIT_CRITICAL(&s_rawMux);
+}
 
 // ---------------------------------------------------------------------
 // bool SubGhz::init()
@@ -261,6 +292,8 @@ float SubGhz::getFrequency()
 // ---------------------------------------------------------------------
 void SubGhz::enableRCSwitch()
 {
+    rawCaptureForceStop();   // defensive: drop any stale Read RAW ISR
+
     ELECHOUSE_cc1101.Init();
     ELECHOUSE_cc1101.setMHZ(CC1101_MHZ);               // Here you can set your basic frequency. The lib calculates the frequency automatically (default = 433.92).The cc1101 can: 300-348 MHZ, 387-464MHZ and 779-928MHZ. Read More info from datasheet.
     ELECHOUSE_cc1101.setModulation(CC1101_MODULATION); // set modulation mode. 0 = 2-FSK, 1 = GFSK, 2 = ASK/OOK, 3 = 4-FSK, 4 = MSK.
@@ -297,6 +330,10 @@ void SubGhz::disableRCSwitch()
 // ---------------------------------------------------------------------
 void SubGhz::enableReceiver()
 {
+    // Defensive: tear down any lingering Read RAW pin-change ISR before we
+    // bind our own InterruptHandler to the same GDO0 pin.
+    rawCaptureForceStop();
+
     // Reset capture buffer — sizeof(sample) gives full array size (4096 * sizeof(int)).
     // BUG FIX: was sizeof(SAMPLE_SIZE) which is sizeof(int)=4, only zeroing 4 bytes!
     memset(sample, 0, sizeof(sample));
@@ -354,6 +391,8 @@ void SubGhz::disableReceiver()
 // ---------------------------------------------------------------------
 void SubGhz::enableTransmit()
 {
+    rawCaptureForceStop();   // defensive: GDO0 is about to be driven as output
+
     ELECHOUSE_cc1101.Init();
     ELECHOUSE_cc1101.setMHZ(CC1101_MHZ);               // Here you can set your basic frequency. The lib calculates the frequency automatically (default = 433.92).The cc1101 can: 300-348 MHZ, 387-464MHZ and 779-928MHZ. Read More info from datasheet.
     ELECHOUSE_cc1101.setModulation(CC1101_MODULATION); // set modulation mode. 0 = 2-FSK, 1 = GFSK, 2 = ASK/OOK, 3 = 4-FSK, 4 = MSK.
@@ -386,13 +425,38 @@ void SubGhz::disableTransmit()
 }
 
 // ---------------------------------------------------------------------
+// void SubGhz::initScannerScreen() — wipe SquareLine widgets, build new UI.
+// Called once from setup() so the Scanner tab is ready before user enters.
+// ---------------------------------------------------------------------
+void SubGhz::initScannerScreen()
+{
+    scanner_init();
+}
+
+// ---------------------------------------------------------------------
 // void SubGhz::enableScanner()
 // ---------------------------------------------------------------------
 void SubGhz::enableScanner(float start, float stop)
 {
+    // Region gate — bail out before touching the radio if either endpoint
+    // is outside the current region's allowed CC1101 bands.
+    if (!WorldMode::freqAllowed(start) || !WorldMode::freqAllowed(stop)) {
+        Serial.printf("[SubGhz] freq %.2f MHz outside region\n", start);
+        return;
+    }
+
+    // Defensive: a Read RAW capture left its pin-change ISR attached on
+    // CC1101_GDO0 will fire while we drive SPI register writes below, which
+    // can corrupt SPI transactions and trip the WDT → reboot. Tear it down
+    // unconditionally so we can't enter scanner mode with a stale ISR bound.
+    rawCaptureForceStop();
+
     start_freq = start;
     stop_freq = stop;
     freq = start_freq;
+
+    // Initialize scanner screen on first use
+    scanner_init();
 
     ELECHOUSE_cc1101.Init();
     ELECHOUSE_cc1101.setMHZ(freq);                     // Here you can set your basic frequency. The lib calculates the frequency automatically (default = 433.92).The cc1101 can: 300-348 MHZ, 387-464MHZ and 779-928MHZ. Read More info from datasheet.
@@ -413,12 +477,16 @@ void SubGhz::enableScanner(float start, float stop)
     ELECHOUSE_cc1101.SetRx(); // Set Receive on
 }
 
+// (ScannerScreen.h moved to top of file)
+
 // ---------------------------------------------------------------------
 // void SubGhz::disableScanner()
 // ---------------------------------------------------------------------
 void SubGhz::disableScanner()
 {
     ELECHOUSE_cc1101.setSidle();
+    scn.running = false;
+    scanner_update_display();
 }
 
 // ---------------------------------------------------------------------
@@ -545,6 +613,13 @@ bool SubGhz::CaptureLoop()
 
 bool SubGhz::CaptureLoopSD()
 {
+    // Defensive: if a Read RAW capture is still running here, it owns the
+    // GDO0 ISR + the CC1101's SPI bus — colliding with our SD SPI work
+    // below would crash. Tear it down before we touch the radio.
+    if (s_rawRunning) {
+        rawCaptureForceStop();
+    }
+
     File outputFile;
     if (CheckReceived())
     {
@@ -713,58 +788,48 @@ void SubGhz::resetProtAnalyzer()
 
 // ---------------------------------------------------------------------
 // void SubGhz::ScannerLoop()
+// Flipper-style fast RSSI sweep with FFT bar graph display
 // ---------------------------------------------------------------------
 void SubGhz::ScannerLoop()
 {
-    // SubGhz::enableReceive();
+    scn.running = true;
+    scn.start_freq = start_freq;
+    scn.stop_freq = stop_freq;
 
-    lv_textarea_set_cursor_click_pos(ui_txtScannerData, false);
+    float range = stop_freq - start_freq;
+    if (range < 0.01) range = 1.0;
+    float step = range / FFT_BINS;
 
-    int rxBW = lv_arc_get_value(ui_arcScanBW);
+    // Fast RSSI sweep
+    scn.peak_rssi = -128;
+    scn.peak_freq = 0;
 
-    ELECHOUSE_cc1101.setRxBW(rxBW); // orig = 58
-    ELECHOUSE_cc1101.SetRx(freq);
-    ELECHOUSE_cc1101.setMHZ(freq);
-    rssi = ELECHOUSE_cc1101.getRssi();
-
-    if (rssi > -200)
-    {
-        if (rssi > mark_rssi)
-        {
-            mark_rssi = rssi;
-            mark_freq = freq;
+    for (int i = 0; i < FFT_BINS; i++) {
+        float f = start_freq + (i * step);
+        // SetRx(f) does setSidle + setMHZ + Calibrate + SRX strobe.
+        // Need ~800us for cal + ~500us for AGC/RSSI to settle.
+        ELECHOUSE_cc1101.SetRx(f);
+        delayMicroseconds(1500);
+        int r = ELECHOUSE_cc1101.getRssi();
+        scn.rssi[i] = (int8_t)constrain(r, -128, 0);
+        if (r > scn.peak_rssi) {
+            scn.peak_rssi = r;
+            scn.peak_freq = f;
         }
     }
+    scn.sweep_count++;
 
-    freq += 0.10;
+    // Log peak every 8 sweeps so a USB serial monitor can verify RSSI flow
+    if (scn.sweep_count % 8 == 0) {
+        Serial.printf("[SCAN] sweep=%lu peak=%.2fMHz %ddBm\n",
+            scn.sweep_count, scn.peak_freq, scn.peak_rssi);
+    }
 
-    if (freq > stop_freq)
-    {
-        freq = start_freq;
-        int thVal = atoi(lv_label_get_text(ui_lblThreshold));
-
-        // map(threshVal,-40,-80,40,80);
-        if (mark_rssi > thVal)
-        {
-            long fr = mark_freq * 100;
-
-            if (fr == compare_freq)
-            {
-                char scanBuf[48];
-                snprintf(scanBuf, sizeof(scanBuf), "%.2f MHZ | RSSI: %d\n", mark_freq, mark_rssi);
-                lv_textarea_add_text(ui_txtScannerData, scanBuf);
-                mark_rssi = -100;
-                compare_freq = 0;
-                mark_freq = 0;
-            }
-            else
-            {
-                compare_freq = mark_freq * 100;
-                freq = mark_freq - 0.10;
-                mark_freq = 0;
-                mark_rssi = -100;
-            }
-        }
+    // Push to LVGL only when the mutex is free; skip this frame otherwise.
+    extern SemaphoreHandle_t lvgl_mutex;
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        scanner_update_display();
+        xSemaphoreGive(lvgl_mutex);
     }
 }
 
@@ -1037,6 +1102,324 @@ bool SubGhz::sendCapture()
     lv_label_set_text(ui_lblRecPlayStatus, pbBuf);
 
     return true;
+}
+
+// =====================================================================
+// Read RAW capture — Flipper-style OOK async serial timing capture
+// =====================================================================
+//
+// The CC1101 is configured in OOK + Async Serial mode (PKTCTRL0=3) which
+// streams the demodulated bitstream directly on GDO0. A GPIO change ISR
+// time-stamps every edge with micros() and stores signed deltas:
+//
+//   +duration  → previous interval was a MARK (HIGH ended → LOW starting)
+//   -duration  → previous interval was a SPACE (LOW ended → HIGH starting)
+//
+// This matches the Flipper RAW_Data convention.
+
+#define RAW_CAP_SIZE 4096
+
+static volatile int32_t     s_rawBuf[RAW_CAP_SIZE];
+static volatile int         s_rawCount = 0;
+// s_rawRunning + s_rawIsrPin + s_rawMux are forward-declared near the top of
+// this file so the defensive rawCaptureForceStop() helper can see them.
+static volatile uint32_t    s_rawLastEdgeUs = 0;
+static volatile uint32_t    s_rawLastEdgeMs = 0;
+static volatile bool        s_rawHavePrev = false;
+static char                 s_rawFilename[96] = {0};
+static float                s_rawFreqMhz = 0;
+// Preset actually applied to the CC1101 for the in-flight capture. Captured
+// in startRawCapture() and consumed by stopRawCapture() when emitting the
+// Flipper "Preset:" header line in the .sub file.
+static CC1101Preset         s_rawActivePreset = AM650;
+
+// ISR — capture an edge of GDO0 and record signed transition delta.
+static void IRAM_ATTR rawCaptureISR()
+{
+    if (!s_rawRunning) return;
+
+    uint32_t now = micros();
+    int level = digitalRead(CC1101_GDO0); // current level AFTER edge
+
+    if (!s_rawHavePrev) {
+        s_rawHavePrev = true;
+        s_rawLastEdgeUs = now;
+        s_rawLastEdgeMs = millis();
+        return;
+    }
+
+    uint32_t delta = now - s_rawLastEdgeUs;
+    s_rawLastEdgeUs = now;
+    s_rawLastEdgeMs = millis();
+
+    if (delta > (uint32_t)(INT32_MAX / 2)) {
+        delta = (uint32_t)(INT32_MAX / 2);
+    }
+
+    int32_t value;
+    // If we just went LOW, the interval we just measured was the HIGH
+    // duration → MARK → +delta. If we went HIGH, it was the LOW
+    // duration → SPACE → -delta.
+    if (level == LOW) {
+        value = (int32_t)delta;     // mark
+    } else {
+        value = -(int32_t)delta;    // space
+    }
+
+    // ESP32-S3 is dual-core. Touching head/tail of the ring buffer without
+    // a critical section risks a torn write or out-of-bounds index if the
+    // main loop reads s_rawCount mid-update from the other core.
+    portENTER_CRITICAL_ISR(&s_rawMux);
+    int c = s_rawCount;
+    if (c < RAW_CAP_SIZE) {
+        s_rawBuf[c] = value;
+        s_rawCount = c + 1;
+    }
+    portEXIT_CRITICAL_ISR(&s_rawMux);
+}
+
+// Apply one of the four canonical Flipper presets to the CC1101. Caller
+// must have already invoked ELECHOUSE_cc1101.Init() + setMHZ(). The radio
+// is left in IDLE — caller should call SetRx() / SetTx() afterwards.
+void SubGhz::applyPreset(CC1101Preset preset)
+{
+    // Common to all four presets: async serial out on GDO0, no sync word,
+    // DC blocking filter off (Flipper convention for RAW capture/replay).
+    int modulation = 2;     // ASK/OOK by default
+    float drate    = 3.794f;
+    int rxbw       = 650;
+    float deviation = 0.0f;
+
+    switch (preset) {
+        case CC1101_PRESET_OOK_270:
+            modulation = 2;
+            drate      = 3.794f;
+            rxbw       = 270;
+            deviation  = 0.0f;
+            break;
+        case CC1101_PRESET_OOK_650:
+            modulation = 2;
+            drate      = 3.794f;
+            rxbw       = 650;
+            deviation  = 0.0f;
+            break;
+        case CC1101_PRESET_FSK_238:
+            modulation = 0;
+            drate      = 4.797f;
+            rxbw       = 238;
+            deviation  = 47.0f;
+            break;
+        case CC1101_PRESET_FSK_476:
+            modulation = 0;
+            drate      = 4.797f;
+            rxbw       = 476;
+            deviation  = 47.0f;
+            break;
+        default:
+            // Unknown preset: leave radio in current config.
+            return;
+    }
+
+    ELECHOUSE_cc1101.setModulation(modulation);
+    ELECHOUSE_cc1101.setDRate(drate);
+    ELECHOUSE_cc1101.setRxBW(rxbw);
+    ELECHOUSE_cc1101.setDeviation(deviation);
+    ELECHOUSE_cc1101.setSyncMode(0);
+    ELECHOUSE_cc1101.setPktFormat(3);
+    ELECHOUSE_cc1101.setDcFilterOff(1);
+
+    // Track the active preset for the .sub header line.
+    CC1101_PRESET = preset;
+}
+
+const char *SubGhz::presetName(CC1101Preset p)
+{
+    switch (p) {
+        case CC1101_PRESET_OOK_270: return "OOK 270kHz";
+        case CC1101_PRESET_OOK_650: return "OOK 650kHz";
+        case CC1101_PRESET_FSK_238: return "FSK 238kHz";
+        case CC1101_PRESET_FSK_476: return "FSK 476kHz";
+        default:                    return "?";
+    }
+}
+
+// Legacy 2-arg wrapper — defaults to the OOK 650 kHz preset that the
+// original implementation hard-coded. main.cpp's fp_subghz_raw_start
+// trampoline still calls this signature.
+bool SubGhz::startRawCapture(float freq_mhz, const char *filename)
+{
+    return startRawCapture(freq_mhz, filename, CC1101_PRESET_OOK_650);
+}
+
+bool SubGhz::startRawCapture(float freq_mhz, const char *filename, CC1101Preset preset)
+{
+    if (!WorldMode::freqAllowed(freq_mhz)) {
+        Serial.printf("[SubGhz] freq %.2f MHz outside region\n", freq_mhz);
+        return false;
+    }
+    if (s_rawRunning) return false;
+
+    // Refuse to start while scanner is sweeping the radio.
+    if (currentState == kStateScanner) {
+        return false;
+    }
+
+    // Reset capture buffer state.
+    portENTER_CRITICAL(&s_rawMux);
+    s_rawCount = 0;
+    portEXIT_CRITICAL(&s_rawMux);
+    s_rawHavePrev = false;
+    s_rawLastEdgeUs = micros();
+    s_rawLastEdgeMs = millis();
+    s_rawFreqMhz = freq_mhz;
+    s_rawActivePreset = preset;
+    if (filename) {
+        snprintf(s_rawFilename, sizeof(s_rawFilename), "%s", filename);
+    } else {
+        s_rawFilename[0] = '\0';
+    }
+
+    // Configure CC1101 via the canonical preset table, then go to RX.
+    ELECHOUSE_cc1101.Init();
+    ELECHOUSE_cc1101.setMHZ(freq_mhz);
+    applyPreset(preset);
+    ELECHOUSE_cc1101.SetRx();
+
+    pinMode(CC1101_GDO0, INPUT);
+    s_rawIsrPin = digitalPinToInterrupt(CC1101_GDO0);
+
+    portENTER_CRITICAL(&s_rawMux);
+    s_rawRunning = true;
+    portEXIT_CRITICAL(&s_rawMux);
+    attachInterrupt(s_rawIsrPin, rawCaptureISR, CHANGE);
+
+    Serial.printf("[RAW] startRawCapture @ %.3f MHz (%s) -> %s\n",
+                  freq_mhz, presetName(preset), s_rawFilename);
+    return true;
+}
+
+int SubGhz::rawCaptureCount()
+{
+    return (int)s_rawCount;
+}
+
+bool SubGhz::rawCaptureRunning()
+{
+    return s_rawRunning;
+}
+
+uint32_t SubGhz::rawCaptureLastTransitionMs()
+{
+    return s_rawLastEdgeMs;
+}
+
+void SubGhz::stopRawCapture()
+{
+    if (!s_rawRunning) return;
+
+    // Stop ISR FIRST so the buffer stops growing while we flush.
+    if (s_rawIsrPin >= 0) {
+        detachInterrupt(s_rawIsrPin);
+    }
+    portENTER_CRITICAL(&s_rawMux);
+    s_rawRunning = false;
+    int count = s_rawCount;
+    portEXIT_CRITICAL(&s_rawMux);
+
+    // Park the radio.
+    ELECHOUSE_cc1101.setSidle();
+    Serial.printf("[RAW] stopRawCapture — %d transitions\n", count);
+
+    if (s_rawFilename[0] == '\0' || count < 2) {
+        return; // nothing to write
+    }
+
+    // Mount SD (same pattern as saveCaptureToSD).
+    sdSPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
+    if (!SD.begin(SD_CS, sdSPI)) {
+        Serial.println("[RAW] SD mount failed");
+        return;
+    }
+
+    if (!SD.exists("/captures")) {
+        SD.mkdir("/captures");
+    }
+
+    char fullPath[160];
+    if (s_rawFilename[0] == '/') {
+        snprintf(fullPath, sizeof(fullPath), "%s", s_rawFilename);
+    } else {
+        snprintf(fullPath, sizeof(fullPath), "/captures/%s", s_rawFilename);
+    }
+
+    File f = SD.open(fullPath, FILE_WRITE, true);
+    if (!f) {
+        Serial.printf("[RAW] failed to open %s\n", fullPath);
+        SD.end();
+        return;
+    }
+
+    // Flipper RAW header.
+    uint32_t freq_hz = (uint32_t)(s_rawFreqMhz * 1000000.0f);
+    f.println("Filetype: Flipper SubGhz RAW File");
+    f.println("Version: 1");
+    f.printf("Frequency: %lu\n", (unsigned long)freq_hz);
+    // Map the preset that was active for this capture to its Flipper name.
+    const char *flipperPreset = "FuriHalSubGhzPresetOok650Async";
+    switch (s_rawActivePreset) {
+        case CC1101_PRESET_OOK_270: flipperPreset = "FuriHalSubGhzPresetOok270Async";   break;
+        case CC1101_PRESET_OOK_650: flipperPreset = "FuriHalSubGhzPresetOok650Async";   break;
+        case CC1101_PRESET_FSK_238: flipperPreset = "FuriHalSubGhzPreset2FSKDev238Async"; break;
+        case CC1101_PRESET_FSK_476: flipperPreset = "FuriHalSubGhzPreset2FSKDev476Async"; break;
+        default: break;
+    }
+    f.printf("Preset: %s\n", flipperPreset);
+    f.println("Protocol: RAW");
+
+    // Wrap RAW_Data at ~512 chars per line, prefixed with "RAW_Data: " each.
+    const size_t MAX_LINE = 512;
+    char lineBuf[MAX_LINE + 32];
+    size_t pos = 0;
+    pos += snprintf(lineBuf + pos, sizeof(lineBuf) - pos, "RAW_Data: ");
+
+    bool firstOnLine = true;
+    for (int i = 0; i < count; i++) {
+        char num[16];
+        int n;
+        if (firstOnLine) {
+            n = snprintf(num, sizeof(num), "%ld", (long)s_rawBuf[i]);
+        } else {
+            n = snprintf(num, sizeof(num), " %ld", (long)s_rawBuf[i]);
+        }
+
+        if (pos + (size_t)n >= MAX_LINE) {
+            // Flush current line, start a new RAW_Data: chunk.
+            lineBuf[pos] = '\0';
+            f.println(lineBuf);
+            pos = 0;
+            pos += snprintf(lineBuf + pos, sizeof(lineBuf) - pos, "RAW_Data: ");
+            n = snprintf(num, sizeof(num), "%ld", (long)s_rawBuf[i]);
+            firstOnLine = true;
+        }
+
+        memcpy(lineBuf + pos, num, n);
+        pos += n;
+        firstOnLine = false;
+
+        if ((i & 0xFF) == 0) {
+            vTaskDelay(1); // yield occasionally during long writes
+        }
+    }
+
+    if (pos > strlen("RAW_Data: ")) {
+        lineBuf[pos] = '\0';
+        f.println(lineBuf);
+    }
+
+    f.flush();
+    Serial.printf("[RAW] wrote %s (%lu bytes)\n", fullPath, (unsigned long)f.size());
+    f.close();
+    SD.end();
 }
 
 
