@@ -37,6 +37,7 @@
 #include "Audio/ToneService.h"
 #include "Display/SettingsScreen.h"
 #include "Display/FlipperPlayerScreen.h"
+#include "Display/PagerScreen.h"
 
 
 // Scanner screen initialized from SubGhz.cpp
@@ -405,6 +406,12 @@ void setup()
 
   // Build WaveKai config screen
   wk_screen_init();
+
+  // Pager (POCSAG/FLEX): load persisted config, build the pager screens,
+  // and add a "PAGER" tab + launch button to the CC1101 tabview.
+  pager_init();
+  pager_screen_init();
+  pager_add_launch_tab();
 
   // Build CC1101 sub-menu screen (replaces direct jump to CC1101Stuff)
   {
@@ -1466,7 +1473,17 @@ void loop()
 
   // --- State machine: each state handles its RF/BLE/WiFi work ---
 
-  if (currentState == STATE_AUDIO_TEST)
+  if (currentState == STATE_PAGER)
+  {
+    // Pager (POCSAG/FLEX) receive + decode (no LVGL here); then push new
+    // pages + status to the pager screen under the LVGL mutex.
+    pager_poll();
+    if (xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      pager_screen_sync();
+      xSemaphoreGive(lvgl_mutex);
+    }
+  }
+  else if (currentState == STATE_AUDIO_TEST)
   {
     // MP3 playback retired; immediately drop back to idle so the state
     // machine doesn't get stuck if the legacy button is ever pressed.

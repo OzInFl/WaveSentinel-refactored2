@@ -75,6 +75,7 @@ enum WaveSentinelState
   STATE_BLE_MAR_SOURAPPLE,
   STATE_BLE_MAR_SWIFTPAIR,
   STATE_BLE_MAR_SPAMPLUS,
+  STATE_PAGER,           // Pager (POCSAG/FLEX) receive + decode loop
 };
 
 // Current State
